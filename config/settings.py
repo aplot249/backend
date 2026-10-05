@@ -5,7 +5,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = "django-insecure-form-statistics-dev-key-change-in-production"
 
-DEBUG = True
+if platform.system() in ["Windows", "Darwin"]:
+    DEBUG = True
+    STATICFILES_DIRS = [
+        BASE_DIR.joinpath("static"),
+    ]
+else:
+    DEBUG = False   # 正式环境，关闭debug
+    STATIC_ROOT = BASE_DIR.joinpath('static')
 
 ALLOWED_HOSTS = ["*"]
 
