@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Work Content Statistics Form</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+        .card {
+            background: #fff;
+            width: 100%;
+            max-width: 480px;
+            border-radius: 16px;
+            padding: 40px 36px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+        }
+        .card h1 {
+            font-size: 22px;
+            color: #333;
+            margin-bottom: 6px;
+        }
+        .card .subtitle {
+            font-size: 14px;
+            color: #999;
+            margin-bottom: 28px;
+        }
+        .field { margin-bottom: 22px; position: relative; }
+        .field label {
+            display: block;
+            font-size: 14px;
+            color: #555;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+        .field label .required { color: #e74c3c; }
+        .field input, .field textarea {
+            width: 100%;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 12px 14px;
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            font-family: inherit;
+        }
+        .field input:focus, .field textarea:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+        }
+        .field textarea { resize: vertical; min-height: 100px; }
+        .project-options {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .project-options .option {
+            padding: 8px 14px;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            font-size: 14px;
+            color: #555;
+            cursor: pointer;
+            transition: all 0.2s;
+            user-select: none;
+            background: #fff;
+        }
+        .project-options .option:hover { border-color: #667eea; color: #667eea; }
+        .project-options .option.selected {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            border-color: transparent;
+        }
+        .project-options .loading {
+            font-size: 13px;
+            color: #aaa;
+        }
+        .suggestions {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            margin-top: 4px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 10;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+            display: none;
+        }
+        .suggestions .item {
+            padding: 10px 14px;
+            cursor: pointer;
+            font-size: 14px;
+            color: #333;
+        }
+        .suggestions .item:hover { background: #f0f2ff; }
+        .suggestions .empty {
+            padding: 10px 14px;
+            font-size: 13px;
+            color: #aaa;
+        }
+        button[type="submit"] {
+            width: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 14px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.2s, transform 0.1s;
+        }
+        button[type="submit"]:hover { opacity: 0.92; }
+        button[type="submit"]:active { transform: scale(0.98); }
+        button[type="submit"]:disabled { opacity: 0.6; cursor: not-allowed; }
+        .message {
+            margin-top: 16px;
+            padding: 12px 14px;
+            border-radius: 8px;
+            font-size: 14px;
+            display: none;
+        }
+        .message.success { background: #e8f8ef; color: #27ae60; display: block; }
+        .message.error { background: #fdecea; color: #e74c3c; display: block; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Work Content Statistics</h1>
+        <p class="subtitle">Please fill in the information below and submit</p>
+        <form id="form">
+            <div class="field">
+                <label>Name <span class="required">*</span></label>
+                <input type="text" id="name" autocomplete="off" placeholder="Type your name to search">
+                <div class="suggestions" id="nameSuggest"></div>
+            </div>
+            <div class="field">
+                <label>Project <span class="required">*</span></label>
+                <div class="project-options" id="projectOptions">
+                    <span class="loading">Loading...</span>
+                </div>
+            </div>
+            <div class="field">
+                <label>Work Content</label>
+                <textarea id="remark" placeholder="Briefly describe your work content"></textarea>
+            </div>
+            <button type="submit" id="submitBtn">Submit</button>
+            <div class="message" id="message"></div>
+        </form>
+    </div>
+
+    <script>
+        function debounce(fn, delay) {
+            let timer;
+            return function () {
+                clearTimeout(timer);
+                timer = setTimeout(fn, delay);
+            };
+        }
+
+        function setupAutocomplete(inputId, suggestId, url, onSelect) {
+            const input = document.getElementById(inputId);
+            const box = document.getElementById(suggestId);
+
+            function render(items) {
+                box.innerHTML = "";
+                if (!items.length) {
+                    const div = document.createElement("div");
+                    div.className = "empty";
+                    div.textContent = "No matches found";
+                    box.appendChild(div);
+                } else {
+                    items.forEach(function (item) {
+                        const div = document.createElement("div");
+                        div.className = "item";
+                        div.textContent = item;
+                        div.addEventListener("mousedown", function (e) {
+                            e.preventDefault();
+                            input.value = item;
+                            box.style.display = "none";
+                            if (onSelect) onSelect(item);
+                        });
+                        box.appendChild(div);
+                    });
+                }
+                box.style.display = "block";
+            }
+
+            const search = debounce(function () {
+                const q = input.value.trim();
+                if (!q) { box.style.display = "none"; return; }
+                fetch(url + "?q=" + encodeURIComponent(q))
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { render(data.results || []); })
+                    .catch(function () { box.style.display = "none"; });
+            }, 250);
+
+            input.addEventListener("input", search);
+            input.addEventListener("focus", function () {
+                if (input.value.trim()) search();
+            });
+            document.addEventListener("click", function (e) {
+                if (!input.contains(e.target) && !box.contains(e.target)) {
+                    box.style.display = "none";
+                }
+            });
+        }
+
+        setupAutocomplete("name", "nameSuggest", "/api/search-name/");
+
+        // Project: directly show all options for selection
+        let selectedProject = "";
+        const projectOptions = document.getElementById("projectOptions");
+
+        function renderProjects(items) {
+            projectOptions.innerHTML = "";
+            if (!items.length) {
+                const span = document.createElement("span");
+                span.className = "loading";
+                span.textContent = "No projects yet. Please import them in the admin panel.";
+                projectOptions.appendChild(span);
+                return;
+            }
+            items.forEach(function (item) {
+                const div = document.createElement("div");
+                div.className = "option";
+                div.textContent = item;
+                div.addEventListener("click", function () {
+                    selectedProject = item;
+                    projectOptions.querySelectorAll(".option").forEach(function (o) {
+                        o.classList.remove("selected");
+                    });
+                    div.classList.add("selected");
+                });
+                projectOptions.appendChild(div);
+            });
+        }
+
+        fetch("/api/list-project/")
+            .then(function (r) { return r.json(); })
+            .then(function (data) { renderProjects(data.results || []); })
+            .catch(function () {
+                projectOptions.innerHTML = "";
+                const span = document.createElement("span");
+                span.className = "loading";
+                span.textContent = "Failed to load. Please refresh and try again.";
+                projectOptions.appendChild(span);
+            });
+
+        const form = document.getElementById("form");
+        const message = document.getElementById("message");
+        const submitBtn = document.getElementById("submitBtn");
+
+        form.addEventListener("submit", function (e) {
+            e.preventDefault();
+            const name = document.getElementById("name").value.trim();
+            const project = selectedProject;
+            const remark = document.getElementById("remark").value.trim();
+
+            if (!name || !project) {
+                showMessage("Please fill in your name and select a project", "error");
+                return;
+            }
+
+            submitBtn.disabled = true;
+            submitBtn.textContent = "Submitting...";
+
+            fetch("/api/submit/", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: name, project: project, remark: remark })
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data.ok) {
+                        showMessage(data.message || "Submitted successfully", "success");
+                        form.reset();
+                        selectedProject = "";
+                        projectOptions.querySelectorAll(".option").forEach(function (o) {
+                            o.classList.remove("selected");
+                        });
+                    } else {
+                        showMessage(data.message || "Submission failed", "error");
+                    }
+                })
+                .catch(function () { showMessage("Network error. Please try again.", "error"); })
+                .finally(function () {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = "Submit";
+                });
+        });
+
+        function showMessage(text, type) {
+            message.textContent = text;
+            message.className = "message " + type;
+        }
+    </script>
+</body>
+</html>
