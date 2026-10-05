@@ -1,3 +1,5 @@
-Django==3.2
-django-simpleui==2022.7.29
-django-import-export==3.0.1
+Django==5.2.4
+django-simpleui==2024.11.20
+django-import-export==4.2.0
+openpyxl==3.1.5
+PyMySQL==1.1.1

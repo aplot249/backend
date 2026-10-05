@@ -1,6 +1,7 @@
 """Django settings for the form statistics project."""
 from pathlib import Path
-import  platform
+import os
+import platform
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -61,8 +62,15 @@ WSGI_APPLICATION = "config.wsgi.application"
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+        "ENGINE": "django.db.backends.mysql",
+        "NAME": "labormanage",
+        "USER": "root",
+        "PASSWORD": "qq1788lover",
+        "HOST": "127.0.0.1",
+        "PORT": "3306",
+        "OPTIONS": {
+            "charset": "utf8mb4",
+        },
     }
 }
 
@@ -96,7 +104,7 @@ SIMPLEUI_ANALYSIS = False
 SIMPLEUI_ICON = {
     "姓名库": "fa fa-user",
     "项目库": "fa fa-folder-open",
-    "提交记录": "fa fa-file-text-o",
+    "提交记录": "fa fa-list-alt",
 }
 SIMPLEUI_HOME_QUICK = True
 SIMPLEUI_HOME_ACTION = True
