@@ -1,5 +1,6 @@
 """Django settings for the form statistics project."""
 from pathlib import Path
+import  platform
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
