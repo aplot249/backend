@@ -81,6 +81,23 @@ python manage.py runserver
 2. 进入「提交记录」
 3. 点击右上角「导出」(EXPORT) 按钮，选择格式（xlsx）即可导出所有提交记录
 
+## 从考勤表补全身份信息（import_attendance.py）
+
+把 `Latest list of attendance.xlsx`（后端根目录）里的工种、护照号、单价写入「姓名库」的
+工号、护照号、工时系数：
+
+```bash
+cd backend
+python import_attendance.py            # 写入数据库
+python import_attendance.py --dry-run  # 只预览，不写库
+python import_attendance.py --file 路径.xlsx
+```
+
+- 按第 2 行表头自动定位列（姓名 / 工种 / 护照号 / 单价，找不到则用 B、D、E、F 兜底），第 3 行起读数据
+- 姓名匹配忽略大小写与多余空格；仍匹配不上时再按「只保留字母数字」宽松匹配一次
+- 一人只取 Excel 中的第一条，重复行会单独报告；只想更新有值的字段，值相同则跳过
+- 运行结束会打印：更新人数、无变化人数、空行、未匹配姓名、重复行
+
 ## 数据整理页（/summary/）
 
 以「姓名库」为基准核对每个人的提交情况，需先登录后台再访问：
