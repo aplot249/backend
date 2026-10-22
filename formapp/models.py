@@ -92,7 +92,8 @@ class WorkHour(models.Model):
         verbose_name = "工时记录"
         verbose_name_plural = "工时记录"
         ordering = ["date"]
-        unique_together = ("submission", "date")
+        # 一人 + 一个项目 + 一天 只保留一条记录，工时统一挂在最新提交的工卡上
+        unique_together = ("name", "project", "date")
 
     def __str__(self):
         return f"{self.name} ({self.project}) {self.date} {self.hours}h"

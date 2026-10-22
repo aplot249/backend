@@ -203,8 +203,20 @@ def work_hours(request, submission_id):
 @staff_member_required
 @require_POST
 def save_work_hours(request, submission_id):
-    """保存工天数据：按「提交记录 + 日期」更新，已存在则覆盖，没有工作的天记为 0。"""
+    """保存工天数据：按「人 + 项目 + 日期」更新，已存在则覆盖，没有工作的天记为 0。
+
+    仅允许在该「人 + 项目」最新提交的工卡上保存，历史工卡只读。
+    """
     submission = get_object_or_404(Submission, pk=submission_id)
+
+    if submission.pk not in _latest_submission_ids():
+        return JsonResponse(
+            {
+                "ok": False,
+                "message": "这是历史工卡，只有最新提交的工卡才能录入工天数据",
+            },
+            status=400,
+        )
 
     try:
         data = json.loads(request.body or "{}")
@@ -236,13 +248,10 @@ def save_work_hours(request, submission_id):
             )
 
         WorkHour.objects.update_or_create(
-            submission=submission,
+            name=submission.name,
+            project=submission.project,
             date=work_date,
-            defaults={
-                "name": submission.name,
-                "project": submission.project,
-                "hours": hours,
-            },
+            defaults={"submission": submission, "hours": hours},
         )
         saved.append((work_date, hours))
         total += hours
@@ -278,6 +287,20 @@ def _period_range(month_key):
     return date(start_year, start_month, 21), end
 
 
+def _latest_submission_ids():
+    """每个「人 + 项目」最新一条提交记录（工卡）的 id。
+
+    只有这些工卡允许录入 / 保存工天数据，导出也只取这些工卡关联的工时。
+    """
+    latest = {}
+    queryset = Submission.objects.order_by("created_at", "id").values_list(
+        "id", "name", "project"
+    )
+    for submission_id, name, project in queryset:
+        latest[(name, project)] = submission_id
+    return set(latest.values())
+
+
 def _period_key(day):
     """某一天所属的考勤周期键：21 号及以后归入下个月周期。"""
     if day.day >= 21:
@@ -304,14 +327,19 @@ def _export_periods():
 def summary_view(request):
     """数据整理页：以姓名库为基准，按「人 + 项目」分组展示提交情况（最新提交置顶）。"""
     grouped = {}
+    latest_ids = _latest_submission_ids()
     for submission in Submission.objects.order_by("-created_at"):
         submission.period_month = _payroll_month(submission.created_at)
+        # 只有最新工卡可录入工时，历史工卡只读
+        submission.is_latest_card = submission.pk in latest_ids
         grouped.setdefault(submission.name, []).append(submission)
 
-    # 每个工人的累计工时（跨项目相加）
+    # 每个工人的累计工时（跨项目相加，只取最新工卡关联的数据）
     hours_map = {
         item["name"]: item["total"] or Decimal("0")
-        for item in WorkHour.objects.values("name").annotate(total=Sum("hours"))
+        for item in WorkHour.objects.filter(submission_id__in=latest_ids)
+        .values("name")
+        .annotate(total=Sum("hours"))
     }
 
     rows = []
@@ -386,8 +414,12 @@ def _find_export_template():
 def _collect_export_rows(start, end):
     """汇总周期内每个工人的数据：同一天的多个项目工时相加。"""
     workers = {}
-    queryset = WorkHour.objects.filter(date__gte=start, date__lte=end).values_list(
-        "name", "date", "hours", "project"
+    # 只统计「人 + 项目」最新工卡上关联的工时，历史工卡的数据不导出
+    queryset = (
+        WorkHour.objects.filter(
+            date__gte=start, date__lte=end, submission_id__in=_latest_submission_ids()
+        )
+        .values_list("name", "date", "hours", "project")
     )
     for name, work_date, hours, project in queryset:
         hours = hours or Decimal("0")

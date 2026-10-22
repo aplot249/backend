@@ -188,6 +188,10 @@
             background: #eceefb;
             color: #5a5f7d;
         }
+        .badge-hist {
+            background: #fdf1e3;
+            color: #d35400;
+        }
         .sub.latest .badge {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: #fff;
@@ -357,6 +361,22 @@
             color: #7a7f99;
         }
         .hours-sum b { color: #667eea; font-size: 14px; }
+        .hours-lock {
+            margin-bottom: 8px;
+            padding: 8px 10px;
+            border: 1px solid #f5d9b8;
+            background: #fdf3e6;
+            color: #b35309;
+            border-radius: 8px;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+        .hours-lock b { color: #d35400; }
+        .cal-cell input:disabled {
+            background: #f5f6fa;
+            color: #9aa0b5;
+            cursor: not-allowed;
+        }
         .hours-scroll {
             max-height: 46vh;
             overflow-y: auto;
@@ -414,6 +434,7 @@
         }
         .hours-foot .msg { margin-right: auto; font-size: 12px; }
         .hours-foot .msg.error { color: #e74c3c; }
+        .hours-foot .msg.warn { color: #d35400; }
         .hours-foot .msg.success { color: #27ae60; }
         .hours-foot button {
             border: 1px solid #dcdff0;
@@ -649,6 +670,9 @@
                                     <span class="badge">
                                         {% if submission.pk == row.latest.pk %}最新提交{% elif forloop.first %}该项目最新{% else %}第 {{ forloop.counter }} 次提交{% endif %}
                                     </span>
+                                    {% if not submission.is_latest_card %}
+                                    <span class="badge badge-hist" title="只有最新提交的工卡可以录入工天数据">历史工卡·只读</span>
+                                    {% endif %}
                                     <span class="time">{{ submission.created_at|date:"Y-m-d H:i:s" }}</span>
                                 </div>
                                 <div class="kv">
@@ -664,7 +688,8 @@
                                         data-who="{{ submission.name }}"
                                         data-emp="{{ row.employee_no }}"
                                         data-passport="{{ row.passport_no }}"
-                                        data-period="{{ submission.period_month }}">
+                                        data-period="{{ submission.period_month }}"
+                                        data-latest="{% if submission.is_latest_card %}1{% else %}0{% endif %}">
                                     <img src="{{ submission.card_image.url }}" alt="{{ submission.name }} 的工卡图片">
                                     <span class="open">点击编辑 / 查看</span>
                                 </button>
@@ -751,6 +776,9 @@
                             <span>合计 <b id="hoursTotal">0</b> 小时</span>
                             <span>出勤 <b id="daysWorked">0</b> 天</span>
                         </div>
+                        <div class="hours-lock" id="hoursLock" hidden>
+                            历史工卡：只有该工人该项目<b>最新提交</b>的工卡才能录入 / 保存工天数据，此卡仅供查看。
+                        </div>
                         <div class="hours-scroll" id="hoursScroll">
                             <div class="hours-loading">加载中...</div>
                         </div>
@@ -792,6 +820,9 @@
             var daysWorked = document.getElementById("daysWorked");
             var hoursMsg = document.getElementById("hoursMsg");
             var hoursSave = document.getElementById("hoursSave");
+            var hoursLock = document.getElementById("hoursLock");
+            // 只有「人 + 项目」最新提交的工卡可录入工时，历史工卡只读
+            var hoursEditable = true;
 
             var viewCtx = view.getContext("2d");
             var tmp = document.createElement("canvas");
@@ -914,6 +945,13 @@
                 hoursTotal.textContent = "0";
                 daysWorked.textContent = "0";
                 hoursScroll.innerHTML = '<div class="hours-loading">加载中...</div>';
+                hoursEditable = btn.getAttribute("data-latest") !== "0";
+                hoursLock.hidden = hoursEditable;
+                hoursSave.disabled = !hoursEditable;
+                if (!hoursEditable) {
+                    hoursMsg.textContent = "历史工卡：仅供查看，不能保存工天数据";
+                    hoursMsg.className = "msg warn";
+                }
                 periodMonth = btn.getAttribute("data-period") || defaultMonthKey();
                 loadHours(currentId);
 
@@ -1096,6 +1134,11 @@
                     cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
                 }
                 hoursScroll.innerHTML = html;
+                if (!hoursEditable) {
+                    hoursScroll.querySelectorAll("input[data-date]").forEach(function (input) {
+                        input.disabled = true;
+                    });
+                }
                 updateSummary();
             }
 
@@ -1164,6 +1207,11 @@
 
             function saveHours() {
                 if (!currentId) return;
+                if (!hoursEditable) {
+                    hoursMsg.textContent = "这是历史工卡，只有最新提交的工卡才能录入工天数据";
+                    hoursMsg.className = "msg warn";
+                    return;
+                }
                 var entries = collectEntries();
                 hoursSave.disabled = true;
                 hoursSave.textContent = "保存中...";
