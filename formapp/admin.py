@@ -1,7 +1,7 @@
 from import_export import resources, fields
-from import_export.widgets import ForeignKeyWidget
 from import_export.admin import ImportExportMixin
 from django.contrib import admin
+from django.utils.html import format_html
 
 from .models import Name, Project, Submission
 
@@ -31,9 +31,20 @@ class ProjectResource(resources.ModelResource):
 class SubmissionResource(resources.ModelResource):
     """提交记录导入导出。"""
 
+    card_image_link = fields.Field(column_name="工卡图片链接")
+
     class Meta:
         model = Submission
-        fields = ("id", "name", "project", "remark", "created_at")
+        fields = ("id", "name", "project", "remark", "card_image_link", "created_at")
+        export_order = ("id", "name", "project", "remark", "card_image_link", "created_at")
+
+    def dehydrate_card_image_link(self, obj):
+        if not obj.card_image:
+            return ""
+        try:
+            return obj.card_image.url
+        except ValueError:
+            return ""
 
 
 @admin.register(Name)
@@ -52,8 +63,35 @@ class ProjectAdmin(ImportExportMixin, admin.ModelAdmin):
 
 @admin.register(Submission)
 class SubmissionAdmin(ImportExportMixin, admin.ModelAdmin):
-    list_display = ("name", "project", "remark", "created_at")
+    list_display = ("name", "project", "remark", "card_thumbnail", "created_at")
     list_filter = ("project", "created_at")
     search_fields = ("name", "project", "remark")
     date_hierarchy = "created_at"
+    readonly_fields = ("card_preview", "created_at")
     resource_class = SubmissionResource
+
+    @admin.display(description="工卡图片")
+    def card_thumbnail(self, obj):
+        if not obj.card_image:
+            return "-"
+        try:
+            return format_html(
+                '<a href="{0}" target="_blank">'
+                '<img src="{0}" style="height:56px;border-radius:6px;object-fit:cover;" /></a>',
+                obj.card_image.url,
+            )
+        except ValueError:
+            return "-"
+
+    @admin.display(description="工卡图片预览")
+    def card_preview(self, obj):
+        if not obj.card_image:
+            return "未上传"
+        try:
+            return format_html(
+                '<a href="{0}" target="_blank">'
+                '<img src="{0}" style="max-height:320px;max-width:100%;border-radius:8px;" /></a>',
+                obj.card_image.url,
+            )
+        except ValueError:
+            return "未上传"

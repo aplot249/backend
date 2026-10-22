@@ -2,10 +2,10 @@
 
 一个用于「工作内容统计」的后端项目，包含：
 
-- 表单页面：`name`、`project`、`remark` 三个字段
+- 表单页面：`name`（必填）、`project`（必填）、`card_image`（工卡图片，必填）、`remark`（工作内容，选填）
 - `name` / `project` 支持联想搜索（从后台导入的 Excel 数据中匹配）
-- `remark` 提示用户填写工作内容
-- 后台（SimpleUI）支持 Excel 导入姓名库、项目库，并导出提交记录
+- 工卡图片支持 jpg / png / webp / bmp / gif，单张不超过 10MB，提交前可预览
+- 后台（SimpleUI）支持 Excel 导入姓名库、项目库，并导出提交记录（含工卡图片链接）
 
 ## 目录结构
 
@@ -73,8 +73,10 @@ python manage.py runserver
 ## 说明
 
 - 姓名库 `Name` 与项目库 `Project` 通过后台导入维护。
-- 用户提交记录 `Submission` 保存到数据库，可在后台查看、筛选、导出。
+- 用户提交记录 `Submission` 保存到数据库，可在后台查看工卡图片缩略图、筛选、导出。
+- 工卡图片保存在 `media/work_cards/年/月/` 下，开发环境由 Django 直接提供访问；
+  正式环境需在 Nginx 等服务器上把 `/media/` 指向该目录。
 - 联想搜索接口：
   - `/api/search-name/?q=关键字`
   - `/api/search-project/?q=关键字`
-  - 提交接口：`POST /api/submit/`
+  - 提交接口：`POST /api/submit/`（`multipart/form-data`，字段：`name`、`project`、`card_image`、`remark` 选填）

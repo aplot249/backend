@@ -42,6 +42,7 @@
             font-weight: 500;
         }
         .field label .required { color: #e74c3c; }
+        .field label .optional { color: #aaa; font-weight: 400; }
         .field input, .field textarea {
             width: 100%;
             border: 1px solid #ddd;
@@ -110,6 +111,88 @@
             font-size: 13px;
             color: #aaa;
         }
+        /* 工卡上传 */
+        .upload-box {
+            border: 2px dashed #d5d8e8;
+            border-radius: 12px;
+            padding: 26px 16px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+            background: #fafbff;
+        }
+        .upload-box:hover, .upload-box.dragover {
+            border-color: #667eea;
+            background: #f2f4ff;
+        }
+        .upload-box .icon {
+            width: 38px;
+            height: 38px;
+            margin: 0 auto 10px;
+            display: block;
+            color: #8b90c9;
+        }
+        .upload-box .title {
+            font-size: 14px;
+            color: #555;
+            margin-bottom: 4px;
+        }
+        .upload-box .title b { color: #667eea; }
+        .upload-box .hint {
+            font-size: 12px;
+            color: #aaa;
+        }
+        .upload-preview {
+            display: none;
+            align-items: center;
+            gap: 14px;
+            border: 1px solid #e6e8f2;
+            border-radius: 12px;
+            padding: 12px;
+            background: #fafbff;
+        }
+        .upload-preview img {
+            width: 84px;
+            height: 84px;
+            object-fit: cover;
+            border-radius: 8px;
+            background: #eee;
+            flex: none;
+        }
+        .upload-preview .info {
+            flex: 1;
+            min-width: 0;
+        }
+        .upload-preview .info .fname {
+            font-size: 14px;
+            color: #333;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .upload-preview .info .fsize {
+            font-size: 12px;
+            color: #999;
+            margin-top: 4px;
+        }
+        .upload-preview .info .replace {
+            display: inline-block;
+            font-size: 12px;
+            color: #667eea;
+            margin-top: 6px;
+            cursor: pointer;
+        }
+        .upload-preview .remove {
+            flex: none;
+            border: none;
+            background: #fdecea;
+            color: #e74c3c;
+            font-size: 12px;
+            padding: 6px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        .upload-preview .remove:hover { background: #fbd7d2; }
         button[type="submit"] {
             width: 100%;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -153,7 +236,31 @@
                 </div>
             </div>
             <div class="field">
-                <label>Work Content</label>
+                <label>Work Card Image <span class="required">*</span></label>
+                <div class="upload-box" id="uploadBox">
+                    <svg class="icon" viewBox="0 0 48 48" fill="none" stroke="currentColor"
+                         stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="4" y="10" width="40" height="28" rx="4"></rect>
+                        <circle cx="16" cy="22" r="4.5"></circle>
+                        <path d="M9 33c1.5-4 4-6 7-6s5.5 2 7 6"></path>
+                        <path d="M29 20h9M29 27h9"></path>
+                    </svg>
+                    <div class="title">Tap to <b>upload your attendance card</b></div>
+                    <div class="hint">jpg / png / webp, up to 10MB</div>
+                </div>
+                <div class="upload-preview" id="uploadPreview">
+                    <img id="previewImg" alt="work card preview">
+                    <div class="info">
+                        <div class="fname" id="previewName"></div>
+                        <div class="fsize" id="previewSize"></div>
+                        <span class="replace" id="replaceBtn">Choose another image</span>
+                    </div>
+                    <button type="button" class="remove" id="removeBtn">Remove</button>
+                </div>
+                <input type="file" id="cardImage" name="card_image" accept="image/*" hidden>
+            </div>
+            <div class="field">
+                <label>Work Content <span class="optional">(optional)</span></label>
                 <textarea id="remark" placeholder="Briefly describe your work content"></textarea>
             </div>
             <button type="submit" id="submitBtn">Submit</button>
@@ -259,6 +366,83 @@
                 projectOptions.appendChild(span);
             });
 
+        // 工卡图片上传
+        const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+        const uploadBox = document.getElementById("uploadBox");
+        const uploadPreview = document.getElementById("uploadPreview");
+        const cardInput = document.getElementById("cardImage");
+        const previewImg = document.getElementById("previewImg");
+        const previewName = document.getElementById("previewName");
+        const previewSize = document.getElementById("previewSize");
+        let previewUrl = "";
+
+        function formatSize(bytes) {
+            if (bytes < 1024) return bytes + " B";
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+            return (bytes / 1024 / 1024).toFixed(2) + " MB";
+        }
+
+        function clearImage() {
+            cardInput.value = "";
+            if (previewUrl) {
+                URL.revokeObjectURL(previewUrl);
+                previewUrl = "";
+            }
+            previewImg.removeAttribute("src");
+            uploadPreview.style.display = "none";
+            uploadBox.style.display = "block";
+        }
+
+        function showImage(file) {
+            if (!file) return;
+            if (!file.type || file.type.indexOf("image/") !== 0) {
+                showMessage("Please choose an image file", "error");
+                return;
+            }
+            if (file.size > MAX_IMAGE_SIZE) {
+                showMessage("Image is too large. Please choose one smaller than 10MB.", "error");
+                clearImage();
+                return;
+            }
+            if (previewUrl) URL.revokeObjectURL(previewUrl);
+            previewUrl = URL.createObjectURL(file);
+            previewImg.src = previewUrl;
+            previewName.textContent = file.name;
+            previewSize.textContent = formatSize(file.size);
+            uploadBox.style.display = "none";
+            uploadPreview.style.display = "flex";
+            message.className = "message";
+        }
+
+        uploadBox.addEventListener("click", function () { cardInput.click(); });
+        document.getElementById("replaceBtn").addEventListener("click", function () { cardInput.click(); });
+        document.getElementById("removeBtn").addEventListener("click", function () { clearImage(); });
+
+        cardInput.addEventListener("change", function () {
+            const file = cardInput.files && cardInput.files[0];
+            if (file) showImage(file);
+        });
+
+        ["dragenter", "dragover"].forEach(function (type) {
+            uploadBox.addEventListener(type, function (e) {
+                e.preventDefault();
+                uploadBox.classList.add("dragover");
+            });
+        });
+        ["dragleave", "drop"].forEach(function (type) {
+            uploadBox.addEventListener(type, function (e) {
+                e.preventDefault();
+                uploadBox.classList.remove("dragover");
+            });
+        });
+        uploadBox.addEventListener("drop", function (e) {
+            const files = e.dataTransfer && e.dataTransfer.files;
+            if (files && files.length) {
+                cardInput.files = files;
+                showImage(files[0]);
+            }
+        });
+
         const form = document.getElementById("form");
         const message = document.getElementById("message");
         const submitBtn = document.getElementById("submitBtn");
@@ -268,19 +452,33 @@
             const name = document.getElementById("name").value.trim();
             const project = selectedProject;
             const remark = document.getElementById("remark").value.trim();
+            const cardFile = cardInput.files && cardInput.files[0];
 
             if (!name || !project) {
                 showMessage("Please fill in your name and select a project", "error");
                 return;
             }
+            if (!cardFile) {
+                showMessage("Please upload your attendance card image", "error");
+                return;
+            }
+            if (cardFile.size > MAX_IMAGE_SIZE) {
+                showMessage("Image is too large. Please choose one smaller than 10MB.", "error");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append("name", name);
+            formData.append("project", project);
+            formData.append("remark", remark);
+            formData.append("card_image", cardFile);
 
             submitBtn.disabled = true;
             submitBtn.textContent = "Submitting...";
 
             fetch("/api/submit/", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name: name, project: project, remark: remark })
+                body: formData
             })
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
@@ -291,6 +489,7 @@
                         projectOptions.querySelectorAll(".option").forEach(function (o) {
                             o.classList.remove("selected");
                         });
+                        clearImage();
                     } else {
                         showMessage(data.message || "Submission failed", "error");
                     }

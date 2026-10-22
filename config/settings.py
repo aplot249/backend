@@ -92,6 +92,13 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+# 上传文件（工卡图片）
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+# 单次请求允许的最大上传体积（10MB 工卡图片 + 表单开销）
+DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # SimpleUI 配置
