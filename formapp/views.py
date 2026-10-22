@@ -287,18 +287,29 @@ def _period_range(month_key):
     return date(start_year, start_month, 21), end
 
 
-def _latest_submission_ids():
-    """每个「人 + 项目」最新一条提交记录（工卡）的 id。
-
-    只有这些工卡允许录入 / 保存工天数据，导出也只取这些工卡关联的工时。
-    """
+def _latest_submission_map():
+    """每个「人 + 项目」最新一条提交记录（工卡）：(姓名, 项目) -> 工卡 id。"""
     latest = {}
     queryset = Submission.objects.order_by("created_at", "id").values_list(
         "id", "name", "project"
     )
     for submission_id, name, project in queryset:
         latest[(name, project)] = submission_id
-    return set(latest.values())
+    return latest
+
+
+def _latest_submission_ids():
+    """只有这些工卡允许录入 / 保存工天数据，导出与合计也只取这些工卡关联的工时。"""
+    return set(_latest_submission_map().values())
+
+
+def _normalize_name(value):
+    """姓名归一化：去首尾与连续空白、统一大写。
+
+    姓名库与工卡里的姓名可能存在前后空格、大小写差异（例如 ' ABDUL MOJID'），
+    汇总工时时按归一化后的姓名匹配，避免同一个人的工时统计不到。
+    """
+    return re.sub(r"\s+", " ", str(value or "")).strip().upper()
 
 
 def _period_key(day):
@@ -332,11 +343,12 @@ def summary_view(request):
         submission.period_month = _payroll_month(submission.created_at)
         # 只有最新工卡可录入工时，历史工卡只读
         submission.is_latest_card = submission.pk in latest_ids
-        grouped.setdefault(submission.name, []).append(submission)
+        # 按归一化姓名分组，避免姓名库与工卡姓名空格 / 大小写不一致导致分组不到
+        grouped.setdefault(_normalize_name(submission.name), []).append(submission)
 
     # 每个工人的累计工时（跨项目相加，只取最新工卡关联的数据）
     hours_map = {
-        item["name"]: item["total"] or Decimal("0")
+        _normalize_name(item["name"]): item["total"] or Decimal("0")
         for item in WorkHour.objects.filter(submission_id__in=latest_ids)
         .values("name")
         .annotate(total=Sum("hours"))
@@ -344,7 +356,8 @@ def summary_view(request):
 
     rows = []
     for person in Name.objects.all().only("name", "employee_no", "passport_no"):
-        submissions = grouped.get(person.name, [])
+        person_key = _normalize_name(person.name)
+        submissions = grouped.get(person_key, [])
 
         # 同一个人在不同项目下的提交分开成列，每个项目内按提交时间倒序
         projects = {}
@@ -370,8 +383,10 @@ def summary_view(request):
                 "name": person.name,
                 "employee_no": person.employee_no,
                 "passport_no": person.passport_no,
-                "total_hours": hours_map.get(person.name, Decimal("0")),
-                "total_hours_label": _format_hours(hours_map.get(person.name, Decimal("0"))),
+                "total_hours": hours_map.get(person_key, Decimal("0")),
+                "total_hours_label": _format_hours(
+                    hours_map.get(person_key, Decimal("0"))
+                ),
                 "count": len(submissions),
                 "projects": blocks,
                 "project_count": len(blocks),
@@ -431,14 +446,18 @@ def _collect_export_rows(start, end):
         if project and project not in item["projects"]:
             item["projects"].append(project)
 
+    # 按归一化姓名匹配姓名库，避免因空格 / 大小写差异取不到工号、护照号、单价
     profiles = {
-        person.name: person for person in Name.objects.filter(name__in=workers)
+        _normalize_name(person.name): person
+        for person in Name.objects.all().only(
+            "name", "employee_no", "passport_no", "hourly_rate"
+        )
     }
 
     rows = []
     for name in sorted(workers):
         item = workers[name]
-        person = profiles.get(name)
+        person = profiles.get(_normalize_name(name))
         rate = person.hourly_rate if person else Decimal("0")
         rows.append(
             {

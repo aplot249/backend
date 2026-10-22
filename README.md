@@ -134,6 +134,30 @@ python import_attendance.py --file 路径.xlsx
   - 接口：`GET /api/submission/<id>/work-hours/`、`POST /api/submission/<id>/work-hours/save/`
   - 后台「工时记录」支持按日期/项目筛选、搜索、Excel 导出
 
+## 工时对不上的排查命令
+
+整理页合计（`总工时`）、打卡弹窗、Excel 导出三处口径：
+
+- 弹窗：按「工卡 id」直读该卡的工时
+- 整理页合计 / 导出：按「姓名库姓名」匹配 + **只统计「人 + 项目」最新工卡**上的工时
+
+所以「弹窗有数字、整理页却是 0」通常是下面两个原因之一：
+
+1. **姓名不一致**：姓名库里存的是 `' ABDUL MOJID'`（带空格）或大小写不同，
+   而工卡里是 `ABDUL MOJID`，Python 字典按精确字符串匹配就取不到 → 合计 0
+   （代码已按「去首尾空格 + 连续空格合并 + 统一大写」归一化匹配，见 `_normalize_name`）
+2. **工时挂在历史工卡上**：录完之后，同一个人在同一个项目下又提交了一张新工卡，
+   旧卡变成历史卡，合计与导出会把它过滤掉
+
+排查与修复：
+
+```bash
+python manage.py diagnose_hours                        # 列出所有有工时的人
+python manage.py diagnose_hours --name "ABDUL MOJID"   # 只看某个人（看姓名匹配 / 是否最新卡 / 两个口径的合计）
+python manage.py consolidate_work_hours                # 预览：多少行需要改挂到最新卡、多少重复行
+python manage.py consolidate_work_hours --apply        # 实际把历史卡上的工时改挂到最新卡并去重
+```
+
 ## 导出 Excel（/summary/export/）
 
 页面顶部选择考勤周期后点「导出 Excel」，后端按样表模板生成统计表：
