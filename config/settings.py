@@ -89,7 +89,7 @@ USE_I18N = True
 
 USE_TZ = False
 
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # 上传文件（工卡图片）

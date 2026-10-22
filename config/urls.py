@@ -2,7 +2,9 @@
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
-from django.urls import path
+from django.contrib.admin.views.decorators import staff_member_required
+from django.urls import path, re_path
+from django.views.static import serve
 from formapp import views
 
 urlpatterns = [
@@ -15,5 +17,21 @@ urlpatterns = [
 ]
 
 if settings.DEBUG:
-    # 开发环境提供上传文件访问（生产环境请交给 Nginx 等 Web 服务器）
+    # 开发环境：直接由 Django 提供上传文件访问
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+else:
+    # 生产环境：若未用 Nginx 托管 /media/，则由 Django 提供访问，
+    # 工卡图片属于敏感信息，仅允许已登录的后台用户访问。
+    media_prefix = settings.MEDIA_URL.strip("/")
+
+    @staff_member_required
+    def protected_media(request, path):
+        return serve(request, path, document_root=settings.MEDIA_ROOT, show_indexes=False)
+
+    urlpatterns.append(
+        re_path(
+            rf"^{media_prefix}/(?P<path>.*)$",
+            protected_media,
+            name="protected-media",
+        )
+    )

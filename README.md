@@ -80,3 +80,46 @@ python manage.py runserver
   - `/api/search-name/?q=关键字`
   - `/api/search-project/?q=关键字`
   - 提交接口：`POST /api/submit/`（`multipart/form-data`，字段：`name`、`project`、`card_image`、`remark` 选填）
+
+## 生产环境部署（`DEBUG=False`）
+
+静态文件与上传文件在 `DEBUG=False` 时不会由 `runserver` 自动提供，需要额外处理：
+
+### 1. 收集静态文件
+
+```bash
+python manage.py collectstatic     # 输出到 staticfiles/
+```
+
+### 2. 用 Nginx 托管 static / media（推荐）
+
+```nginx
+location /static/ {
+    alias /srv/form-backend/staticfiles/;
+    expires 30d;
+    access_log off;
+}
+
+location /media/ {
+    alias /srv/form-backend/media/;
+    expires 30d;
+    access_log off;
+}
+```
+
+> `alias` 路径结尾的 `/` 要与 `location` 一致；同时确保运行 Django 的账号对 `media/` 有写权限（上传用），Nginx 账号有读权限。
+
+### 3. 未使用 Nginx 时的兜底方案
+
+项目已内置：当 `DEBUG=False` 时，`/media/` 由 Django 的 `protected-media` 路由提供，
+**仅允许已登录的后台用户访问**（工卡属于敏感信息）。此时无需额外配置即可在后台看到图片，
+但性能不如 Nginx，正式环境仍建议按第 2 步配置。
+
+### 4. 时区问题
+
+若后台按时间筛选/分组时报错 `Database returned an invalid datetime value`，
+说明 MySQL 未加载时区表，在服务器上执行：
+
+```bash
+mysql_tzinfo_to_sql /usr/share/zoneinfo | mysql -u root -p mysql
+```
