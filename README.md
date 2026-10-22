@@ -134,6 +134,24 @@ python import_attendance.py --file 路径.xlsx
   - 接口：`GET /api/submission/<id>/work-hours/`、`POST /api/submission/<id>/work-hours/save/`
   - 后台「工时记录」支持按日期/项目筛选、搜索、Excel 导出
 
+## 姓名空格处理
+
+姓名（以及项目名）统一「去首尾空格 + 中间连续空格合并成一个」，分三层保证：
+
+1. **写入时自动清理**：`Name` / `Submission` / `WorkHour` / `Project` 的 `save()` 都会走 `clean_spaces()`，
+   后台新增、Excel 导入、小程序提交都不会再存进带空格的姓名
+2. **存量数据清洗**：
+
+   ```bash
+   python manage.py trim_names           # 只预览
+   python manage.py trim_names --apply   # 实际清洗（姓名库 / 工卡 / 工时 / 项目库）
+   ```
+
+   修整后若与已有姓名重名，会保留工号、护照、单价更全的一条并合并；
+   工时若撞上「人 + 项目 + 日期」唯一约束，只保留一条
+3. **读取时兜底**：合计与导出仍按 `_normalize_name()`（去空格 + 统一大写）匹配，
+   即使库里还有空格也不会统计成 0
+
 ## 工时对不上的排查命令
 
 整理页合计（`总工时`）、打卡弹窗、Excel 导出三处口径：

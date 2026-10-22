@@ -1,8 +1,18 @@
+import re
 import uuid
 from pathlib import Path
 
 from django.db import models
 from django.utils import timezone
+
+
+def clean_spaces(value):
+    """去掉首尾空白，并把中间的连续空白合并成一个空格。
+
+    姓名库、工卡提交、工时记录里的姓名 / 项目名统一走这个处理，
+    避免 `' ABDUL MOJID'` 与 `'ABDUL MOJID'` 被当成两个人。
+    """
+    return re.sub(r"\s+", " ", str(value or "")).strip()
 
 
 class Name(models.Model):
@@ -27,6 +37,12 @@ class Name(models.Model):
     def __str__(self):
         return self.name
 
+    def save(self, *args, **kwargs):
+        self.name = clean_spaces(self.name)
+        self.employee_no = clean_spaces(self.employee_no)
+        self.passport_no = clean_spaces(self.passport_no)
+        super().save(*args, **kwargs)
+
 
 class Project(models.Model):
     """从 Excel 导入的项目数据。"""
@@ -40,6 +56,10 @@ class Project(models.Model):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        self.name = clean_spaces(self.name)
+        super().save(*args, **kwargs)
 
 
 def work_card_upload_to(instance, filename):
@@ -71,6 +91,11 @@ class Submission(models.Model):
     def __str__(self):
         return f"{self.name} - {self.project}"
 
+    def save(self, *args, **kwargs):
+        self.name = clean_spaces(self.name)
+        self.project = clean_spaces(self.project)
+        super().save(*args, **kwargs)
+
 
 class WorkHour(models.Model):
     """工天数据：某工人在某天的工作小时数（从工卡图片人工录入）。"""
@@ -97,3 +122,8 @@ class WorkHour(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.project}) {self.date} {self.hours}h"
+
+    def save(self, *args, **kwargs):
+        self.name = clean_spaces(self.name)
+        self.project = clean_spaces(self.project)
+        super().save(*args, **kwargs)
