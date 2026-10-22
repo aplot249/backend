@@ -14,6 +14,12 @@ urlpatterns = [
     path("api/search-project/", views.search_project, name="search-project"),
     path("api/list-project/", views.list_project, name="list-project"),
     path("api/submit/", views.submit_form, name="submit-form"),
+    path("summary/", views.summary_view, name="summary"),
+    path(
+        "api/submission/<int:submission_id>/update-card/",
+        views.update_card_image,
+        name="update-card",
+    ),
 ]
 
 if settings.DEBUG:

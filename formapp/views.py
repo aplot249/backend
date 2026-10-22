@@ -2,9 +2,11 @@ import io
 import json
 from pathlib import Path
 
+from django.contrib.admin.views.decorators import staff_member_required
+from django.core.files.storage import default_storage
 from django.http import JsonResponse
-from django.shortcuts import render
-from django.views.decorators.csrf import csrf_exempt
+from django.shortcuts import get_object_or_404, render
+from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
 from PIL import Image, UnidentifiedImageError
 
@@ -128,3 +130,66 @@ def submit_form(request):
         name=name, project=project, remark=remark, card_image=card_image
     )
     return JsonResponse({"ok": True, "message": "Submitted successfully"})
+
+
+@staff_member_required
+@require_POST
+def update_card_image(request, submission_id):
+    """保存裁剪 / 旋转后的工卡图片，替换原来的图片（需后台登录）。"""
+    submission = get_object_or_404(Submission, pk=submission_id)
+    card_image = request.FILES.get("card_image")
+
+    error = _validate_card_image(card_image)
+    if error:
+        return JsonResponse({"ok": False, "message": error}, status=400)
+
+    old_name = submission.card_image.name if submission.card_image else ""
+    submission.card_image = card_image
+    submission.save(update_fields=["card_image"])
+
+    # 新文件使用新的随机文件名，旧文件已无引用，删除以释放空间
+    if old_name and old_name != submission.card_image.name:
+        try:
+            default_storage.delete(old_name)
+        except Exception:
+            pass
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "message": "工卡图片已更新",
+            "url": submission.card_image.url,
+        }
+    )
+
+
+@staff_member_required
+@ensure_csrf_cookie
+def summary_view(request):
+    """数据整理页：以姓名库为基准，展示每个人的提交情况（最新提交置顶）。"""
+    grouped = {}
+    for submission in Submission.objects.order_by("-created_at"):
+        grouped.setdefault(submission.name, []).append(submission)
+
+    rows = []
+    for person in Name.objects.all().only("name"):
+        submissions = grouped.get(person.name, [])
+        rows.append(
+            {
+                "name": person.name,
+                "count": len(submissions),
+                "submissions": submissions,  # 已按提交时间倒序，第一条为最新
+                "latest": submissions[0] if submissions else None,
+            }
+        )
+
+    total = len(rows)
+    submitted_count = sum(1 for row in rows if row["count"])
+    context = {
+        "rows": rows,
+        "total": total,
+        "submitted_count": submitted_count,
+        "missing_count": total - submitted_count,
+        "duplicate_count": sum(1 for row in rows if row["count"] > 1),
+    }
+    return render(request, "summary.html", context)

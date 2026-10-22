@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据整理页</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 32px 20px 60px;
+            color: #333;
+        }
+        .wrap { max-width: 900px; margin: 0 auto; }
+        .page-head {
+            color: #fff;
+            margin-bottom: 24px;
+        }
+        .page-head h1 { font-size: 26px; margin-bottom: 8px; }
+        .page-head .sub { font-size: 14px; opacity: 0.85; line-height: 1.6; }
+        .stats {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 16px;
+        }
+        .stats .stat {
+            background: rgba(255, 255, 255, 0.18);
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            border-radius: 10px;
+            padding: 10px 16px;
+            font-size: 13px;
+            color: #fff;
+        }
+        .stats .stat b { font-size: 18px; margin-right: 6px; }
+        .person {
+            background: #fff;
+            border-radius: 14px;
+            padding: 18px 20px;
+            margin-bottom: 16px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+        }
+        .person.todo { border-left: 5px solid #e74c3c; }
+        .person.done { border-left: 5px solid #27ae60; }
+        .person-head {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .avatar {
+            width: 40px;
+            height: 40px;
+            flex: none;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            font-size: 17px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .who { flex: 1; min-width: 160px; }
+        .who .name { font-size: 16px; font-weight: 600; }
+        .who .meta { font-size: 13px; color: #888; margin-top: 3px; }
+        .tag {
+            font-size: 12px;
+            padding: 5px 10px;
+            border-radius: 20px;
+            white-space: nowrap;
+        }
+        .tag-done { background: #e8f8ef; color: #27ae60; }
+        .tag-multi { background: #fff4e5; color: #e67e22; }
+        .tag-none { background: #fdecea; color: #e74c3c; }
+        .none-tip {
+            margin-top: 14px;
+            padding: 12px 14px;
+            background: #fdecea;
+            color: #c0392b;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        .subs { list-style: none; margin-top: 14px; }
+        .subs .sub {
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+            padding: 12px 14px;
+            border: 1px solid #eceefb;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            background: #fbfcff;
+        }
+        .subs .sub.latest {
+            border-color: #b9c2ff;
+            background: #f4f6ff;
+        }
+        .sub-main { flex: 1; min-width: 0; }
+        .sub-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .badge {
+            font-size: 12px;
+            padding: 4px 9px;
+            border-radius: 6px;
+            background: #eceefb;
+            color: #5a5f7d;
+        }
+        .sub.latest .badge {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            font-weight: 600;
+        }
+        .time { font-size: 13px; color: #888; }
+        .kv { margin-top: 8px; font-size: 14px; display: flex; gap: 8px; }
+        .kv .k { color: #999; flex: none; width: 60px; }
+        .kv .v { color: #333; word-break: break-all; }
+        .kv .v i { color: #aaa; }
+        .sub-card { flex: none; }
+        .card-link {
+            display: block;
+            text-decoration: none;
+            text-align: center;
+            background: none;
+            border: none;
+            padding: 0;
+            font-family: inherit;
+            cursor: zoom-in;
+        }
+        .card-link img {
+            width: 96px;
+            height: 96px;
+            object-fit: cover;
+            border-radius: 8px;
+            border: 1px solid #e3e5f2;
+            background: #f0f0f5;
+            display: block;
+        }
+        .card-link .open {
+            display: inline-block;
+            margin-top: 6px;
+            font-size: 12px;
+            color: #667eea;
+        }
+        .nocard {
+            display: block;
+            width: 96px;
+            height: 96px;
+            line-height: 96px;
+            text-align: center;
+            border: 1px dashed #dcdfea;
+            border-radius: 8px;
+            font-size: 12px;
+            color: #aaa;
+        }
+        .empty {
+            background: #fff;
+            border-radius: 14px;
+            padding: 30px;
+            text-align: center;
+            color: #888;
+            font-size: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+        }
+        .back {
+            display: inline-block;
+            margin-top: 18px;
+            color: #fff;
+            font-size: 13px;
+            text-decoration: none;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.6);
+        }
+        /* 图片编辑弹窗 */
+        .modal {
+            position: fixed;
+            inset: 0;
+            z-index: 100;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .modal.open { display: flex; }
+        .modal-mask {
+            position: absolute;
+            inset: 0;
+            background: rgba(15, 18, 34, 0.65);
+        }
+        .modal-box {
+            position: relative;
+            background: #fff;
+            border-radius: 14px;
+            width: 100%;
+            max-width: 860px;
+            max-height: 92vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+        }
+        .modal-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 18px;
+            border-bottom: 1px solid #eceefb;
+        }
+        .modal-title { font-size: 16px; font-weight: 600; }
+        .modal-title .who { color: #667eea; }
+        .modal-close {
+            border: none;
+            background: none;
+            font-size: 22px;
+            line-height: 1;
+            color: #999;
+            cursor: pointer;
+        }
+        .modal-close:hover { color: #333; }
+        .modal-body {
+            padding: 14px 18px;
+            overflow: auto;
+            background: #f7f8fc;
+        }
+        .toolbar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+        .toolbar button, .modal-foot button {
+            border: 1px solid #dcdff0;
+            background: #fff;
+            color: #444;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 13px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .toolbar button:hover { border-color: #667eea; color: #667eea; }
+        .toolbar button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .toolbar .slider {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: #555;
+            background: #fff;
+            border: 1px solid #dcdff0;
+            border-radius: 8px;
+            padding: 6px 12px;
+        }
+        .toolbar .slider input { width: 150px; }
+        .toolbar .slider .val { min-width: 42px; text-align: right; color: #667eea; }
+        .stage {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 220px;
+        }
+        .crop-stage {
+            position: relative;
+            display: inline-block;
+        }
+        .crop-stage .shade {
+            position: absolute;
+            background: rgba(12, 15, 30, 0.5);
+            pointer-events: none;
+        }
+        #viewCanvas {
+            display: block;
+            max-width: 100%;
+            max-height: 52vh;
+            width: auto;
+            height: auto;
+            background: #fff;
+        }
+        .crop-box {
+            position: absolute;
+            box-sizing: border-box;
+            border: 1px solid #fff;
+            outline: 1px dashed rgba(255, 255, 255, 0.8);
+            outline-offset: -1px;
+            cursor: move;
+            touch-action: none;
+        }
+        .crop-box .handle {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            background: #fff;
+            border: 1px solid #667eea;
+            border-radius: 2px;
+            touch-action: none;
+        }
+        .crop-box .handle[data-dir="nw"] { left: -6px; top: -6px; cursor: nwse-resize; }
+        .crop-box .handle[data-dir="n"] { left: 50%; top: -6px; margin-left: -6px; cursor: ns-resize; }
+        .crop-box .handle[data-dir="ne"] { right: -6px; top: -6px; cursor: nesw-resize; }
+        .crop-box .handle[data-dir="e"] { right: -6px; top: 50%; margin-top: -6px; cursor: ew-resize; }
+        .crop-box .handle[data-dir="se"] { right: -6px; bottom: -6px; cursor: nwse-resize; }
+        .crop-box .handle[data-dir="s"] { left: 50%; bottom: -6px; margin-left: -6px; cursor: ns-resize; }
+        .crop-box .handle[data-dir="sw"] { left: -6px; bottom: -6px; cursor: nesw-resize; }
+        .crop-box .handle[data-dir="w"] { left: -6px; top: 50%; margin-top: -6px; cursor: ew-resize; }
+        .info {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #7a7f99;
+            text-align: center;
+        }
+        .modal-foot {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 10px;
+            padding: 14px 18px;
+            border-top: 1px solid #eceefb;
+        }
+        .modal-foot .msg { margin-right: auto; font-size: 13px; }
+        .modal-foot .msg.error { color: #e74c3c; }
+        .modal-foot .msg.success { color: #27ae60; }
+        .modal-foot .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            border-color: transparent;
+            font-weight: 600;
+        }
+        .modal-foot .btn-primary:disabled { opacity: 0.6; }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="page-head">
+            <h1>数据整理页</h1>
+            <p class="sub">
+                以「姓名库」为基准核对每人提交情况；多次提交会全部列出，最新一次排在最上方并高亮标注。
+            </p>
+            <div class="stats">
+                <span class="stat"><b>{{ total }}</b>姓名库人数</span>
+                <span class="stat"><b>{{ submitted_count }}</b>已提交</span>
+                <span class="stat"><b>{{ missing_count }}</b>未提交</span>
+                <span class="stat"><b>{{ duplicate_count }}</b>多次提交</span>
+            </div>
+        </div>
+
+        {% if not rows %}
+            <div class="empty">姓名库暂无数据，请先在后台导入姓名。</div>
+        {% endif %}
+
+        {% for row in rows %}
+        <section class="person {% if row.count %}done{% else %}todo{% endif %}">
+            <div class="person-head">
+                <span class="avatar">{{ row.name|slice:":1" }}</span>
+                <div class="who">
+                    <div class="name">{{ row.name }}</div>
+                    <div class="meta">
+                        {% if row.count %}
+                            已提交 {{ row.count }} 次 · 最近 {{ row.latest.created_at|date:"Y-m-d H:i" }} · {{ row.latest.project }}
+                        {% else %}
+                            提交记录中没有此人
+                        {% endif %}
+                    </div>
+                </div>
+                {% if row.count %}
+                    <span class="tag tag-done">已提交</span>
+                    {% if row.count > 1 %}<span class="tag tag-multi">多次提交</span>{% endif %}
+                {% else %}
+                    <span class="tag tag-none">未提交</span>
+                {% endif %}
+            </div>
+
+            {% if row.count %}
+            <ul class="subs">
+                {% for submission in row.submissions %}
+                <li class="sub {% if forloop.first %}latest{% endif %}">
+                    <div class="sub-main">
+                        <div class="sub-line">
+                            <span class="badge">
+                                {% if forloop.first %}最新提交{% else %}第 {{ forloop.counter }} 次提交{% endif %}
+                            </span>
+                            <span class="time">{{ submission.created_at|date:"Y-m-d H:i:s" }}</span>
+                        </div>
+                        <div class="kv">
+                            <span class="k">项目</span>
+                            <span class="v">{{ submission.project }}</span>
+                        </div>
+                        <div class="kv">
+                            <span class="k">工作内容</span>
+                            <span class="v">{% if submission.remark %}{{ submission.remark }}{% else %}<i>未填写</i>{% endif %}</span>
+                        </div>
+                    </div>
+                    <div class="sub-card">
+                        {% if submission.card_image %}
+                        <button type="button" class="card-link js-open-editor"
+                                data-id="{{ submission.pk }}"
+                                data-src="{{ submission.card_image.url }}"
+                                data-who="{{ submission.name }}">
+                            <img src="{{ submission.card_image.url }}" alt="{{ submission.name }} 的工卡图片">
+                            <span class="open">点击编辑 / 查看</span>
+                        </button>
+                        {% else %}
+                        <span class="nocard">无工卡图片</span>
+                        {% endif %}
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="none-tip">该人尚未提交记录：姓名库中存在此人，但提交记录里没有该姓名的数据。</p>
+            {% endif %}
+        </section>
+        {% endfor %}
+
+        <a class="back" href="/admin/">返回后台管理</a>
+    </div>
+
+    <div class="modal" id="editorModal">
+        <div class="modal-mask" id="editorMask"></div>
+        <div class="modal-box">
+            <div class="modal-head">
+                <span class="modal-title">工卡图片编辑 · <span class="who" id="editorWho"></span></span>
+                <button type="button" class="modal-close" id="editorClose" title="关闭">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="toolbar">
+                    <button type="button" data-act="rotate-left">左转 90°</button>
+                    <button type="button" data-act="rotate-right">右转 90°</button>
+                    <label class="slider">
+                        旋转
+                        <input type="range" id="angleRange" min="-180" max="180" step="1" value="0">
+                        <span class="val" id="angleVal">0°</span>
+                    </label>
+                    <button type="button" data-act="select-all">全选</button>
+                    <button type="button" data-act="reset">复位</button>
+                </div>
+                <div class="stage">
+                    <div class="crop-stage" id="cropStage">
+                        <canvas id="viewCanvas"></canvas>
+                        <div class="shade" id="shadeTop"></div>
+                        <div class="shade" id="shadeBottom"></div>
+                        <div class="shade" id="shadeLeft"></div>
+                        <div class="shade" id="shadeRight"></div>
+                        <div class="crop-box" id="cropBox">
+                            <div class="handle" data-dir="nw"></div>
+                            <div class="handle" data-dir="n"></div>
+                            <div class="handle" data-dir="ne"></div>
+                            <div class="handle" data-dir="e"></div>
+                            <div class="handle" data-dir="se"></div>
+                            <div class="handle" data-dir="s"></div>
+                            <div class="handle" data-dir="sw"></div>
+                            <div class="handle" data-dir="w"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="info" id="sizeInfo">加载中...</div>
+            </div>
+            <div class="modal-foot">
+                <span class="msg" id="editorMsg"></span>
+                <button type="button" id="editorCancel">取消</button>
+                <button type="button" class="btn-primary" id="editorSave">保存并替换原图</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            var modal = document.getElementById("editorModal");
+            var view = document.getElementById("viewCanvas");
+            var cropBox = document.getElementById("cropBox");
+            var shadeTop = document.getElementById("shadeTop");
+            var shadeBottom = document.getElementById("shadeBottom");
+            var shadeLeft = document.getElementById("shadeLeft");
+            var shadeRight = document.getElementById("shadeRight");
+            var angleRange = document.getElementById("angleRange");
+            var angleVal = document.getElementById("angleVal");
+            var sizeInfo = document.getElementById("sizeInfo");
+            var msg = document.getElementById("editorMsg");
+            var saveBtn = document.getElementById("editorSave");
+            var who = document.getElementById("editorWho");
+
+            var viewCtx = view.getContext("2d");
+            var tmp = document.createElement("canvas");
+            var tmpCtx = tmp.getContext("2d");
+
+            var MIN_SIZE = 24;
+            var MAX_WORK = 3000;  // 工作画布最大边长，避免超大图在移动端被浏览器限制
+            var baseImg = null;
+            var angle = 0;
+            var workScale = 1;
+            var crop = { x: 0, y: 0, w: 0, h: 0 };
+            var disp = { w: 0, h: 0 };
+            var currentId = null;
+            var drag = null;
+
+            function getCookie(name) {
+                var match = document.cookie.match(new RegExp("(^|;\\s*)" + name + "=([^;]+)"));
+                return match ? decodeURIComponent(match[2]) : "";
+            }
+
+            function normalize(a) {
+                var v = ((a + 180) % 360 + 360) % 360 - 180;
+                return v === -180 ? 180 : v;
+            }
+
+            function clampCrop(c) {
+                if (c.w < MIN_SIZE) c.w = MIN_SIZE;
+                if (c.h < MIN_SIZE) c.h = MIN_SIZE;
+                if (c.w > disp.w) c.w = disp.w;
+                if (c.h > disp.h) c.h = disp.h;
+                c.x = Math.max(0, Math.min(c.x, disp.w - c.w));
+                c.y = Math.max(0, Math.min(c.y, disp.h - c.h));
+                return c;
+            }
+
+            function render() {
+                var rad = angle * Math.PI / 180;
+                var cos = Math.abs(Math.cos(rad));
+                var sin = Math.abs(Math.sin(rad));
+                var w = baseImg.naturalWidth;
+                var h = baseImg.naturalHeight;
+
+                var bw = w * cos + h * sin;
+                var bh = w * sin + h * cos;
+                var scale = Math.min(1, MAX_WORK / Math.max(bw, bh));
+                workScale = scale;
+
+                tmp.width = Math.max(1, Math.round(bw * scale));
+                tmp.height = Math.max(1, Math.round(bh * scale));
+                tmpCtx.fillStyle = "#ffffff";
+                tmpCtx.fillRect(0, 0, tmp.width, tmp.height);
+                tmpCtx.save();
+                tmpCtx.translate(tmp.width / 2, tmp.height / 2);
+                tmpCtx.rotate(rad);
+                tmpCtx.scale(scale, scale);
+                tmpCtx.drawImage(baseImg, -w / 2, -h / 2);
+                tmpCtx.restore();
+
+                view.width = tmp.width;
+                view.height = tmp.height;
+                viewCtx.drawImage(tmp, 0, 0);
+
+                disp = { w: view.clientWidth, h: view.clientHeight };
+                crop = { x: 0, y: 0, w: disp.w, h: disp.h };
+                applyCrop();
+            }
+
+            function applyCrop() {
+                cropBox.style.left = crop.x + "px";
+                cropBox.style.top = crop.y + "px";
+                cropBox.style.width = crop.w + "px";
+                cropBox.style.height = crop.h + "px";
+
+                var right = Math.max(0, disp.w - crop.x - crop.w);
+                var bottom = Math.max(0, disp.h - crop.y - crop.h);
+                shadeTop.style.cssText = "left:0;top:0;width:100%;height:" + crop.y + "px";
+                shadeBottom.style.cssText = "left:0;top:" + (crop.y + crop.h) + "px;width:100%;height:" + bottom + "px";
+                shadeLeft.style.cssText = "left:0;top:" + crop.y + "px;width:" + crop.x + "px;height:" + crop.h + "px";
+                shadeRight.style.cssText = "left:" + (crop.x + crop.w) + "px;top:" + crop.y + "px;width:" + right + "px;height:" + crop.h + "px";
+
+                var ratio = tmp.width / (disp.w || 1);
+                var work = workScale < 1 ? " · 处理分辨率 " + tmp.width + "×" + tmp.height : "";
+                sizeInfo.textContent = "原图 " + baseImg.naturalWidth + "×" + baseImg.naturalHeight + work
+                    + " · 裁剪后 " + Math.round(crop.w * ratio) + "×" + Math.round(crop.h * ratio) + " 像素";
+            }
+
+            function setAngle(value) {
+                angle = normalize(value);
+                angleRange.value = angle;
+                angleVal.textContent = angle + "°";
+                if (baseImg && baseImg.complete) render();
+            }
+
+            function openEditor(btn) {
+                currentId = btn.getAttribute("data-id");
+                who.textContent = btn.getAttribute("data-who") || "";
+                msg.textContent = "";
+                msg.className = "msg";
+                angle = 0;
+                angleRange.value = 0;
+                angleVal.textContent = "0°";
+                sizeInfo.textContent = "加载中...";
+                saveBtn.disabled = true;
+                modal.classList.add("open");
+
+                baseImg = new Image();
+                baseImg.onload = function () {
+                    saveBtn.disabled = false;
+                    render();
+                };
+                baseImg.onerror = function () {
+                    sizeInfo.textContent = "图片加载失败，请刷新页面重试";
+                };
+                baseImg.src = btn.getAttribute("data-src");
+            }
+
+            function closeEditor() {
+                modal.classList.remove("open");
+                baseImg = null;
+                currentId = null;
+                saveBtn.disabled = false;
+                saveBtn.textContent = "保存并替换原图";
+            }
+
+            function selectAll() {
+                crop = { x: 0, y: 0, w: disp.w, h: disp.h };
+                applyCrop();
+            }
+
+            function save() {
+                if (!baseImg || !currentId) return;
+                var ratio = tmp.width / (disp.w || 1);
+                var sx = Math.round(crop.x * ratio);
+                var sy = Math.round(crop.y * ratio);
+                var sw = Math.max(1, Math.round(crop.w * ratio));
+                var sh = Math.max(1, Math.round(crop.h * ratio));
+
+                var out = document.createElement("canvas");
+                out.width = sw;
+                out.height = sh;
+                var outCtx = out.getContext("2d");
+                outCtx.fillStyle = "#ffffff";
+                outCtx.fillRect(0, 0, sw, sh);
+                outCtx.drawImage(tmp, sx, sy, sw, sh, 0, 0, sw, sh);
+
+                out.toBlob(function (blob) {
+                    if (!blob) {
+                        msg.textContent = "图片处理失败，请重试";
+                        msg.className = "msg error";
+                        return;
+                    }
+                    var form = new FormData();
+                    form.append("card_image", blob, "card.jpg");
+
+                    saveBtn.disabled = true;
+                    saveBtn.textContent = "保存中...";
+                    msg.textContent = "";
+
+                    fetch("/api/submission/" + currentId + "/update-card/", {
+                        method: "POST",
+                        headers: { "X-CSRFToken": getCookie("csrftoken") },
+                        body: form
+                    })
+                        .then(function (r) { return r.json(); })
+                        .then(function (data) {
+                            if (!data.ok) {
+                                msg.textContent = data.message || "保存失败";
+                                msg.className = "msg error";
+                                return;
+                            }
+                            var id = currentId;
+                            var url = data.url;
+                            closeEditor();
+                            updateThumb(id, url);
+                        })
+                        .catch(function () {
+                            msg.textContent = "网络错误，请重试";
+                            msg.className = "msg error";
+                        })
+                        .finally(function () {
+                            if (modal.classList.contains("open")) {
+                                saveBtn.disabled = false;
+                                saveBtn.textContent = "保存并替换原图";
+                            }
+                        });
+                }, "image/jpeg", 0.92);
+            }
+
+            function updateThumb(id, url) {
+                var btn = document.querySelector('.js-open-editor[data-id="' + id + '"]');
+                if (!btn) return;
+                btn.setAttribute("data-src", url);
+                var img = btn.querySelector("img");
+                if (img) img.src = url + "?t=" + Date.now();
+            }
+
+            document.querySelectorAll(".js-open-editor").forEach(function (btn) {
+                btn.addEventListener("click", function () { openEditor(btn); });
+            });
+
+            document.getElementById("editorClose").addEventListener("click", closeEditor);
+            document.getElementById("editorCancel").addEventListener("click", closeEditor);
+            document.getElementById("editorMask").addEventListener("click", closeEditor);
+            saveBtn.addEventListener("click", save);
+
+            document.addEventListener("keydown", function (e) {
+                if (e.key === "Escape" && modal.classList.contains("open")) closeEditor();
+            });
+
+            document.querySelectorAll(".toolbar button").forEach(function (btn) {
+                btn.addEventListener("click", function () {
+                    var act = btn.getAttribute("data-act");
+                    if (act === "rotate-left") setAngle(angle - 90);
+                    if (act === "rotate-right") setAngle(angle + 90);
+                    if (act === "reset") setAngle(0);
+                    if (act === "select-all") selectAll();
+                });
+            });
+
+            angleRange.addEventListener("input", function () {
+                setAngle(parseInt(angleRange.value, 10) || 0);
+            });
+
+            cropBox.addEventListener("pointerdown", function (e) {
+                if (!baseImg) return;
+                var handle = e.target.closest(".handle");
+                drag = {
+                    type: handle ? "resize" : "move",
+                    dir: handle ? handle.getAttribute("data-dir") : "",
+                    sx: e.clientX,
+                    sy: e.clientY,
+                    start: { x: crop.x, y: crop.y, w: crop.w, h: crop.h }
+                };
+                cropBox.setPointerCapture(e.pointerId);
+                e.preventDefault();
+            });
+
+            cropBox.addEventListener("pointermove", function (e) {
+                if (!drag) return;
+                var dx = e.clientX - drag.sx;
+                var dy = e.clientY - drag.sy;
+                var s = drag.start;
+                var c = { x: s.x, y: s.y, w: s.w, h: s.h };
+
+                if (drag.type === "move") {
+                    c.x = s.x + dx;
+                    c.y = s.y + dy;
+                } else {
+                    var dir = drag.dir;
+                    if (dir.indexOf("e") >= 0) c.w = s.w + dx;
+                    if (dir.indexOf("s") >= 0) c.h = s.h + dy;
+                    if (dir.indexOf("w") >= 0) { c.x = s.x + dx; c.w = s.w - dx; }
+                    if (dir.indexOf("n") >= 0) { c.y = s.y + dy; c.h = s.h - dy; }
+                    if (c.w < MIN_SIZE) {
+                        c.w = MIN_SIZE;
+                        if (dir.indexOf("w") >= 0) c.x = s.x + s.w - MIN_SIZE;
+                    }
+                    if (c.h < MIN_SIZE) {
+                        c.h = MIN_SIZE;
+                        if (dir.indexOf("n") >= 0) c.y = s.y + s.h - MIN_SIZE;
+                    }
+                }
+                crop = clampCrop(c);
+                applyCrop();
+            });
+
+            ["pointerup", "pointercancel"].forEach(function (type) {
+                cropBox.addEventListener(type, function () { drag = null; });
+            });
+        })();
+    </script>
+</body>
+</html>
