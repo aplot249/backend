@@ -13,7 +13,7 @@
             padding: 32px 20px 60px;
             color: #333;
         }
-        .wrap { max-width: 900px; margin: 0 auto; }
+        .wrap { max-width: 1200px; margin: 0 auto; }
         .page-head {
             color: #fff;
             margin-bottom: 24px;
@@ -35,6 +35,40 @@
             color: #fff;
         }
         .stats .stat b { font-size: 18px; margin-right: 6px; }
+        .export-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 14px;
+            padding: 10px 14px;
+            background: rgba(255, 255, 255, 0.18);
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            border-radius: 10px;
+            color: #fff;
+            font-size: 13px;
+        }
+        .export-bar select {
+            padding: 6px 10px;
+            border-radius: 8px;
+            border: 1px solid #dcdff0;
+            background: #fff;
+            color: #444;
+            font-family: inherit;
+            font-size: 13px;
+        }
+        .export-bar button {
+            padding: 7px 16px;
+            border-radius: 8px;
+            border: none;
+            background: #fff;
+            color: #667eea;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .export-bar button:hover { background: #f4f6ff; }
         .person {
             background: #fff;
             border-radius: 14px;
@@ -74,7 +108,54 @@
         }
         .tag-done { background: #e8f8ef; color: #27ae60; }
         .tag-multi { background: #fff4e5; color: #e67e22; }
+        .tag-cross { background: #eef1ff; color: #667eea; }
+        .tag-hours { background: #e8f8ef; color: #1e9e63; font-weight: 600; }
+        .name .chip {
+            display: inline-block;
+            margin-left: 8px;
+            padding: 2px 8px;
+            border-radius: 6px;
+            background: #f2f4ff;
+            color: #667eea;
+            font-size: 12px;
+            font-weight: 500;
+            vertical-align: 2px;
+            white-space: nowrap;
+        }
         .tag-none { background: #fdecea; color: #e74c3c; }
+        .proj-cols {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 14px;
+            margin-top: 14px;
+        }
+        .proj {
+            border: 1px solid #eceefb;
+            border-radius: 10px;
+            padding: 10px 12px 4px;
+            background: #fbfcff;
+        }
+        .proj-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            padding-bottom: 8px;
+            margin-bottom: 10px;
+            border-bottom: 1px dashed #e6e9f7;
+        }
+        .proj-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+            word-break: break-all;
+        }
+        .proj-count { font-size: 12px; color: #7a7f99; white-space: nowrap; }
+        .proj .subs { margin-top: 0; }
+        .proj .sub { margin-bottom: 8px; }
+        @media (max-width: 700px) {
+            .proj-cols { grid-template-columns: 1fr; }
+        }
         .none-tip {
             margin-top: 14px;
             padding: 12px 14px;
@@ -192,7 +273,7 @@
             background: #fff;
             border-radius: 14px;
             width: 100%;
-            max-width: 860px;
+            max-width: 1080px;
             max-height: 92vh;
             display: flex;
             flex-direction: column;
@@ -208,6 +289,12 @@
         }
         .modal-title { font-size: 16px; font-weight: 600; }
         .modal-title .who { color: #667eea; }
+        .modal-title .who-fields {
+            color: #8a90ad;
+            font-size: 13px;
+            font-weight: 400;
+            margin-left: 8px;
+        }
         .modal-close {
             border: none;
             background: none;
@@ -222,6 +309,129 @@
             overflow: auto;
             background: #f7f8fc;
         }
+        .modal-cols {
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+        }
+        .col-img { flex: 1 1 auto; min-width: 0; }
+        .col-hours {
+            flex: 0 0 360px;
+            width: 360px;
+            background: #fff;
+            border: 1px solid #eceefb;
+            border-radius: 10px;
+            padding: 12px;
+        }
+        @media (max-width: 900px) {
+            .modal-cols { flex-direction: column; }
+            .col-hours { flex: none; width: 100%; }
+        }
+        .hours-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .period-nav {
+            flex: none;
+            width: 28px;
+            height: 28px;
+            border: 1px solid #dcdff0;
+            background: #fff;
+            border-radius: 6px;
+            color: #667eea;
+            font-size: 17px;
+            line-height: 1;
+            cursor: pointer;
+        }
+        .period-nav:hover { background: #f2f4ff; }
+        .period-title { flex: 1; text-align: center; }
+        .period-title b { display: block; font-size: 14px; color: #333; }
+        .period-title span { font-size: 11px; color: #9aa0b5; }
+        .hours-sum {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            margin: 8px 0;
+            font-size: 12px;
+            color: #7a7f99;
+        }
+        .hours-sum b { color: #667eea; font-size: 14px; }
+        .hours-scroll {
+            max-height: 46vh;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+        .hours-loading {
+            padding: 24px 0;
+            text-align: center;
+            font-size: 13px;
+            color: #aaa;
+        }
+        .cal { margin-bottom: 14px; }
+        .cal-title { font-size: 12px; color: #666; margin-bottom: 6px; font-weight: 600; }
+        .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .cal-grid .wd { text-align: center; font-size: 11px; color: #9aa0b5; padding-bottom: 2px; }
+        .cal-cell {
+            border: 1px solid #e9ebf5;
+            border-radius: 6px;
+            padding: 3px 2px 2px;
+            text-align: center;
+            background: #fff;
+        }
+        .cal-cell.blank { border: none; background: transparent; }
+        .cal-cell.off { background: #f8f9fd; border-color: #f0f1f8; }
+        .cal-cell .d { font-size: 11px; color: #7c8199; line-height: 1.4; }
+        .cal-cell.weekend .d { color: #d06060; }
+        .cal-cell.off .d { color: #c8cbdb; }
+        .cal-cell input {
+            width: 100%;
+            border: 1px solid #e2e5f2;
+            border-radius: 4px;
+            padding: 2px 0;
+            font-size: 12px;
+            text-align: center;
+            font-family: inherit;
+            color: #333;
+        }
+        .cal-cell input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.15);
+        }
+        .cal-cell.filled input {
+            background: #eef1ff;
+            border-color: #c3cbfc;
+            font-weight: 600;
+            color: #4a54a8;
+        }
+        .hours-foot {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .hours-foot .msg { margin-right: auto; font-size: 12px; }
+        .hours-foot .msg.error { color: #e74c3c; }
+        .hours-foot .msg.success { color: #27ae60; }
+        .hours-foot button {
+            border: 1px solid #dcdff0;
+            background: #fff;
+            color: #444;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 13px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .hours-foot button.btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            border-color: transparent;
+            font-weight: 600;
+        }
+        .hours-foot button:disabled { opacity: 0.6; cursor: not-allowed; }
         .toolbar {
             display: flex;
             align-items: center;
@@ -310,6 +520,37 @@
             color: #7a7f99;
             text-align: center;
         }
+        .img-actions {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 10px;
+            min-height: 34px;
+        }
+        .img-actions .msg { font-size: 13px; }
+        .img-actions .msg.error { color: #e74c3c; }
+        .img-actions .msg.success { color: #27ae60; }
+        .img-actions button {
+            border: 1px solid #dcdff0;
+            background: #fff;
+            color: #444;
+            border-radius: 8px;
+            padding: 9px 18px;
+            font-size: 13px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .img-actions button.btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            border-color: transparent;
+            font-weight: 600;
+        }
+        .img-actions button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
         .modal-foot {
             display: flex;
             align-items: center;
@@ -335,14 +576,27 @@
         <div class="page-head">
             <h1>数据整理页</h1>
             <p class="sub">
-                以「姓名库」为基准核对每人提交情况；多次提交会全部列出，最新一次排在最上方并高亮标注。
+                以「姓名库」为基准核对每人提交情况；同一人若为多个项目提交，按项目左右分列展示，
+                每列内多次提交全部列出，最新一次排在最上方并高亮标注。
             </p>
             <div class="stats">
                 <span class="stat"><b>{{ total }}</b>姓名库人数</span>
                 <span class="stat"><b>{{ submitted_count }}</b>已提交</span>
                 <span class="stat"><b>{{ missing_count }}</b>未提交</span>
                 <span class="stat"><b>{{ duplicate_count }}</b>多次提交</span>
+                <span class="stat"><b>{{ multi_project_count }}</b>跨多项目</span>
+                <span class="stat"><b>{{ total_hours_label }}</b>累计工时</span>
             </div>
+
+            <form class="export-bar" method="get" action="/summary/export/">
+                <span>导出工时 Excel</span>
+                <select name="month" title="选择考勤周期（上月 21 日 ~ 本月 20 日）">
+                    {% for period in periods %}
+                    <option value="{{ period.key }}" {% if period.key == default_period %}selected{% endif %}>{{ period.label }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit">导出 Excel</button>
+            </form>
         </div>
 
         {% if not rows %}
@@ -354,10 +608,16 @@
             <div class="person-head">
                 <span class="avatar">{{ row.name|slice:":1" }}</span>
                 <div class="who">
-                    <div class="name">{{ row.name }}</div>
+                    <div class="name">
+                        {{ row.name }}
+                        {% if row.employee_no %}<span class="chip">工号 {{ row.employee_no }}</span>{% endif %}
+                        {% if row.passport_no %}<span class="chip">护照 {{ row.passport_no }}</span>{% endif %}
+                    </div>
                     <div class="meta">
                         {% if row.count %}
-                            已提交 {{ row.count }} 次 · 最近 {{ row.latest.created_at|date:"Y-m-d H:i" }} · {{ row.latest.project }}
+                            已提交 {{ row.count }} 次（{{ row.project_count }} 个项目）·
+                            累计工时 {{ row.total_hours_label }} 小时 ·
+                            最近 {{ row.latest.created_at|date:"Y-m-d H:i" }} · {{ row.latest.project }}
                         {% else %}
                             提交记录中没有此人
                         {% endif %}
@@ -366,47 +626,58 @@
                 {% if row.count %}
                     <span class="tag tag-done">已提交</span>
                     {% if row.count > 1 %}<span class="tag tag-multi">多次提交</span>{% endif %}
+                    {% if row.project_count > 1 %}<span class="tag tag-cross">跨 {{ row.project_count }} 个项目</span>{% endif %}
+                    <span class="tag tag-hours">总工时 {{ row.total_hours_label }} 小时</span>
                 {% else %}
                     <span class="tag tag-none">未提交</span>
                 {% endif %}
             </div>
 
             {% if row.count %}
-            <ul class="subs">
-                {% for submission in row.submissions %}
-                <li class="sub {% if forloop.first %}latest{% endif %}">
-                    <div class="sub-main">
-                        <div class="sub-line">
-                            <span class="badge">
-                                {% if forloop.first %}最新提交{% else %}第 {{ forloop.counter }} 次提交{% endif %}
-                            </span>
-                            <span class="time">{{ submission.created_at|date:"Y-m-d H:i:s" }}</span>
-                        </div>
-                        <div class="kv">
-                            <span class="k">项目</span>
-                            <span class="v">{{ submission.project }}</span>
-                        </div>
-                        <div class="kv">
-                            <span class="k">工作内容</span>
-                            <span class="v">{% if submission.remark %}{{ submission.remark }}{% else %}<i>未填写</i>{% endif %}</span>
-                        </div>
+            <div class="proj-cols">
+                {% for block in row.projects %}
+                <div class="proj">
+                    <div class="proj-head">
+                        <span class="proj-name">{{ block.project }}</span>
+                        <span class="proj-count">{{ block.count }} 次提交</span>
                     </div>
-                    <div class="sub-card">
-                        {% if submission.card_image %}
-                        <button type="button" class="card-link js-open-editor"
-                                data-id="{{ submission.pk }}"
-                                data-src="{{ submission.card_image.url }}"
-                                data-who="{{ submission.name }}">
-                            <img src="{{ submission.card_image.url }}" alt="{{ submission.name }} 的工卡图片">
-                            <span class="open">点击编辑 / 查看</span>
-                        </button>
-                        {% else %}
-                        <span class="nocard">无工卡图片</span>
-                        {% endif %}
-                    </div>
-                </li>
+                    <ul class="subs">
+                        {% for submission in block.submissions %}
+                        <li class="sub {% if submission.pk == row.latest.pk %}latest{% endif %}">
+                            <div class="sub-main">
+                                <div class="sub-line">
+                                    <span class="badge">
+                                        {% if submission.pk == row.latest.pk %}最新提交{% elif forloop.first %}该项目最新{% else %}第 {{ forloop.counter }} 次提交{% endif %}
+                                    </span>
+                                    <span class="time">{{ submission.created_at|date:"Y-m-d H:i:s" }}</span>
+                                </div>
+                                <div class="kv">
+                                    <span class="k">工作内容</span>
+                                    <span class="v">{% if submission.remark %}{{ submission.remark }}{% else %}<i>未填写</i>{% endif %}</span>
+                                </div>
+                            </div>
+                            <div class="sub-card">
+                                {% if submission.card_image %}
+                                <button type="button" class="card-link js-open-editor"
+                                        data-id="{{ submission.pk }}"
+                                        data-src="{{ submission.card_image.url }}"
+                                        data-who="{{ submission.name }}"
+                                        data-emp="{{ row.employee_no }}"
+                                        data-passport="{{ row.passport_no }}"
+                                        data-period="{{ submission.period_month }}">
+                                    <img src="{{ submission.card_image.url }}" alt="{{ submission.name }} 的工卡图片">
+                                    <span class="open">点击编辑 / 查看</span>
+                                </button>
+                                {% else %}
+                                <span class="nocard">无工卡图片</span>
+                                {% endif %}
+                            </div>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
                 {% endfor %}
-            </ul>
+            </div>
             {% else %}
             <p class="none-tip">该人尚未提交记录：姓名库中存在此人，但提交记录里没有该姓名的数据。</p>
             {% endif %}
@@ -420,46 +691,78 @@
         <div class="modal-mask" id="editorMask"></div>
         <div class="modal-box">
             <div class="modal-head">
-                <span class="modal-title">工卡图片编辑 · <span class="who" id="editorWho"></span></span>
+                <span class="modal-title">
+                    工卡图片编辑 ·
+                    <span class="who" id="editorWho"></span>
+                    <span class="who-fields" id="editorWhoFields"></span>
+                </span>
                 <button type="button" class="modal-close" id="editorClose" title="关闭">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="toolbar">
-                    <button type="button" data-act="rotate-left">左转 90°</button>
-                    <button type="button" data-act="rotate-right">右转 90°</button>
-                    <label class="slider">
-                        旋转
-                        <input type="range" id="angleRange" min="-180" max="180" step="1" value="0">
-                        <span class="val" id="angleVal">0°</span>
-                    </label>
-                    <button type="button" data-act="select-all">全选</button>
-                    <button type="button" data-act="reset">复位</button>
-                </div>
-                <div class="stage">
-                    <div class="crop-stage" id="cropStage">
-                        <canvas id="viewCanvas"></canvas>
-                        <div class="shade" id="shadeTop"></div>
-                        <div class="shade" id="shadeBottom"></div>
-                        <div class="shade" id="shadeLeft"></div>
-                        <div class="shade" id="shadeRight"></div>
-                        <div class="crop-box" id="cropBox">
-                            <div class="handle" data-dir="nw"></div>
-                            <div class="handle" data-dir="n"></div>
-                            <div class="handle" data-dir="ne"></div>
-                            <div class="handle" data-dir="e"></div>
-                            <div class="handle" data-dir="se"></div>
-                            <div class="handle" data-dir="s"></div>
-                            <div class="handle" data-dir="sw"></div>
-                            <div class="handle" data-dir="w"></div>
+                <div class="modal-cols">
+                    <div class="col-img">
+                        <div class="toolbar">
+                            <button type="button" data-act="rotate-left">左转 90°</button>
+                            <button type="button" data-act="rotate-right">右转 90°</button>
+                            <label class="slider">
+                                旋转
+                                <input type="range" id="angleRange" min="-180" max="180" step="1" value="0">
+                                <span class="val" id="angleVal">0°</span>
+                            </label>
+                            <button type="button" data-act="select-all">全选</button>
+                            <button type="button" data-act="reset">复位</button>
+                        </div>
+                        <div class="stage">
+                            <div class="crop-stage" id="cropStage">
+                                <canvas id="viewCanvas"></canvas>
+                                <div class="shade" id="shadeTop"></div>
+                                <div class="shade" id="shadeBottom"></div>
+                                <div class="shade" id="shadeLeft"></div>
+                                <div class="shade" id="shadeRight"></div>
+                                <div class="crop-box" id="cropBox">
+                                    <div class="handle" data-dir="nw"></div>
+                                    <div class="handle" data-dir="n"></div>
+                                    <div class="handle" data-dir="ne"></div>
+                                    <div class="handle" data-dir="e"></div>
+                                    <div class="handle" data-dir="se"></div>
+                                    <div class="handle" data-dir="s"></div>
+                                    <div class="handle" data-dir="sw"></div>
+                                    <div class="handle" data-dir="w"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="info" id="sizeInfo">加载中...</div>
+                        <div class="img-actions">
+                            <button type="button" class="btn-primary" id="editorSave">保存并替换原图</button>
+                            <span class="msg" id="editorMsg"></span>
+                        </div>
+                    </div>
+
+                    <div class="col-hours">
+                        <div class="hours-head">
+                            <button type="button" class="period-nav" id="periodPrev" title="上一个周期">&lsaquo;</button>
+                            <div class="period-title">
+                                <b id="periodTitle">-</b>
+                                <span id="periodRange"></span>
+                            </div>
+                            <button type="button" class="period-nav" id="periodNext" title="下一个周期">&rsaquo;</button>
+                        </div>
+                        <div class="hours-sum">
+                            <span>合计 <b id="hoursTotal">0</b> 小时</span>
+                            <span>出勤 <b id="daysWorked">0</b> 天</span>
+                        </div>
+                        <div class="hours-scroll" id="hoursScroll">
+                            <div class="hours-loading">加载中...</div>
+                        </div>
+                        <div class="hours-foot">
+                            <span class="msg" id="hoursMsg"></span>
+                            <button type="button" class="btn-primary" id="hoursSave">保存工天数据</button>
                         </div>
                     </div>
                 </div>
-                <div class="info" id="sizeInfo">加载中...</div>
             </div>
             <div class="modal-foot">
-                <span class="msg" id="editorMsg"></span>
                 <button type="button" id="editorCancel">取消</button>
-                <button type="button" class="btn-primary" id="editorSave">保存并替换原图</button>
             </div>
         </div>
     </div>
@@ -479,6 +782,16 @@
             var msg = document.getElementById("editorMsg");
             var saveBtn = document.getElementById("editorSave");
             var who = document.getElementById("editorWho");
+            var whoFields = document.getElementById("editorWhoFields");
+            var periodPrev = document.getElementById("periodPrev");
+            var periodNext = document.getElementById("periodNext");
+            var periodTitle = document.getElementById("periodTitle");
+            var periodRange = document.getElementById("periodRange");
+            var hoursScroll = document.getElementById("hoursScroll");
+            var hoursTotal = document.getElementById("hoursTotal");
+            var daysWorked = document.getElementById("daysWorked");
+            var hoursMsg = document.getElementById("hoursMsg");
+            var hoursSave = document.getElementById("hoursSave");
 
             var viewCtx = view.getContext("2d");
             var tmp = document.createElement("canvas");
@@ -493,6 +806,8 @@
             var disp = { w: 0, h: 0 };
             var currentId = null;
             var drag = null;
+            var periodMonth = "";
+            var hoursData = {};
 
             function getCookie(name) {
                 var match = document.cookie.match(new RegExp("(^|;\\s*)" + name + "=([^;]+)"));
@@ -572,9 +887,19 @@
                 if (baseImg && baseImg.complete) render();
             }
 
+            function workerFields(btn) {
+                var fields = [];
+                var employeeNo = btn.getAttribute("data-emp") || "";
+                var passportNo = btn.getAttribute("data-passport") || "";
+                if (employeeNo) fields.push("工号 " + employeeNo);
+                if (passportNo) fields.push("护照 " + passportNo);
+                return fields.length ? "· " + fields.join(" · ") : "";
+            }
+
             function openEditor(btn) {
                 currentId = btn.getAttribute("data-id");
                 who.textContent = btn.getAttribute("data-who") || "";
+                whoFields.textContent = workerFields(btn);
                 msg.textContent = "";
                 msg.className = "msg";
                 angle = 0;
@@ -583,6 +908,14 @@
                 sizeInfo.textContent = "加载中...";
                 saveBtn.disabled = true;
                 modal.classList.add("open");
+
+                hoursMsg.textContent = "";
+                hoursMsg.className = "msg";
+                hoursTotal.textContent = "0";
+                daysWorked.textContent = "0";
+                hoursScroll.innerHTML = '<div class="hours-loading">加载中...</div>';
+                periodMonth = btn.getAttribute("data-period") || defaultMonthKey();
+                loadHours(currentId);
 
                 baseImg = new Image();
                 baseImg.onload = function () {
@@ -674,6 +1007,205 @@
                 var img = btn.querySelector("img");
                 if (img) img.src = url + "?t=" + Date.now();
             }
+
+            /* ---------------- 工天数据（日历） ---------------- */
+            var WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
+
+            function pad2(n) { return (n < 10 ? "0" : "") + n; }
+            function isoDate(y, m, d) { return y + "-" + pad2(m) + "-" + pad2(d); }
+            function daysInMonth(y, m) { return new Date(y, m, 0).getDate(); }
+            function fmtDate(d) {
+                return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+            }
+            function round1(n) { return Math.round(n * 10) / 10; }
+
+            function defaultMonthKey() {
+                var now = new Date();
+                return now.getFullYear() + "-" + pad2(now.getMonth() + 1);
+            }
+
+            function shiftMonth(key, delta) {
+                var y = parseInt(key.slice(0, 4), 10);
+                var m = parseInt(key.slice(5, 7), 10) - 1 + delta;
+                var d = new Date(y, m, 1);
+                return d.getFullYear() + "-" + pad2(d.getMonth() + 1);
+            }
+
+            // 工卡考勤周期：上月 21 日 ~ 本月 20 日
+            function periodFor(key) {
+                var y = parseInt(key.slice(0, 4), 10);
+                var m = parseInt(key.slice(5, 7), 10);
+                var sy = m === 1 ? y - 1 : y;
+                var sm = m === 1 ? 12 : m - 1;
+                return {
+                    start: new Date(sy, sm - 1, 21),
+                    end: new Date(y, m - 1, 20),
+                    label: y + " 年 " + m + " 月周期"
+                };
+            }
+
+            function monthBlock(y, m, period) {
+                var total = daysInMonth(y, m);
+                var lead = new Date(y, m - 1, 1).getDay();
+                var cells = "";
+                var i, d;
+
+                for (i = 0; i < lead; i++) {
+                    cells += '<div class="cal-cell blank"></div>';
+                }
+                for (d = 1; d <= total; d++) {
+                    var cur = new Date(y, m - 1, d);
+                    var key = isoDate(y, m, d);
+                    var dow = cur.getDay();
+                    var cls = "cal-cell" + (dow === 0 || dow === 6 ? " weekend" : "");
+                    var inPeriod = cur >= period.start && cur <= period.end;
+
+                    if (!inPeriod) {
+                        cells += '<div class="' + cls + ' off"><div class="d">' + d + "</div></div>";
+                        continue;
+                    }
+
+                    var value = hoursData[key];
+                    if (value === undefined || value === null) value = 0;
+                    var filled = Number(value) > 0 ? " filled" : "";
+                    cells += '<div class="' + cls + filled + '">'
+                        + '<div class="d">' + d + "</div>"
+                        + '<input type="number" min="0" max="24" step="0.5" inputmode="decimal"'
+                        + ' data-date="' + key + '" value="' + value + '">'
+                        + "</div>";
+                }
+
+                var head = WEEKDAYS.map(function (t) {
+                    return '<div class="wd">' + t + "</div>";
+                }).join("");
+
+                return '<div class="cal"><div class="cal-title">' + y + " 年 " + m + " 月</div>"
+                    + '<div class="cal-grid">' + head + cells + "</div></div>";
+            }
+
+            function renderCalendar() {
+                var period = periodFor(periodMonth);
+                periodTitle.textContent = period.label;
+                periodRange.textContent = fmtDate(period.start) + " ~ " + fmtDate(period.end);
+
+                var html = "";
+                var cursor = new Date(period.start.getFullYear(), period.start.getMonth(), 1);
+                var lastMonth = new Date(period.end.getFullYear(), period.end.getMonth(), 1);
+                while (cursor <= lastMonth) {
+                    html += monthBlock(cursor.getFullYear(), cursor.getMonth() + 1, period);
+                    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+                }
+                hoursScroll.innerHTML = html;
+                updateSummary();
+            }
+
+            function readInputValue(input) {
+                var v = parseFloat(input.value);
+                if (isNaN(v) || v < 0) v = 0;
+                if (v > 24) v = 24;
+                return v;
+            }
+
+            function updateSummary() {
+                var total = 0;
+                var days = 0;
+                hoursScroll.querySelectorAll("input[data-date]").forEach(function (input) {
+                    var v = readInputValue(input);
+                    total += v;
+                    if (v > 0) days++;
+                    var cell = input.closest(".cal-cell");
+                    if (cell) {
+                        if (v > 0) cell.classList.add("filled");
+                        else cell.classList.remove("filled");
+                    }
+                });
+                hoursTotal.textContent = round1(total);
+                daysWorked.textContent = days;
+            }
+
+            function collectEntries() {
+                var entries = {};
+                hoursScroll.querySelectorAll("input[data-date]").forEach(function (input) {
+                    entries[input.getAttribute("data-date")] = readInputValue(input);
+                });
+                return entries;
+            }
+
+            function hasUnsavedHours() {
+                var entries = collectEntries();
+                return Object.keys(entries).some(function (key) {
+                    return entries[key] !== Number(hoursData[key] || 0);
+                });
+            }
+
+            function switchPeriod(delta) {
+                if (hasUnsavedHours() && !window.confirm("当前周期的工天数据还未保存，切换后会丢失，确定继续？")) {
+                    return;
+                }
+                periodMonth = shiftMonth(periodMonth, delta);
+                renderCalendar();
+            }
+
+            function loadHours(id) {
+                var url = "/api/submission/" + id + "/work-hours/";
+                fetch(url, { headers: { "X-Requested-With": "XMLHttpRequest" } })
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        hoursData = (data && data.results) || {};
+                        renderCalendar();
+                    })
+                    .catch(function () {
+                        hoursData = {};
+                        renderCalendar();
+                        hoursMsg.textContent = "工天数据加载失败";
+                        hoursMsg.className = "msg error";
+                    });
+            }
+
+            function saveHours() {
+                if (!currentId) return;
+                var entries = collectEntries();
+                hoursSave.disabled = true;
+                hoursSave.textContent = "保存中...";
+                hoursMsg.textContent = "";
+                hoursMsg.className = "msg";
+
+                fetch("/api/submission/" + currentId + "/work-hours/save/", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-CSRFToken": getCookie("csrftoken")
+                    },
+                    body: JSON.stringify({ entries: entries })
+                })
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        if (!data.ok) {
+                            hoursMsg.textContent = data.message || "保存失败";
+                            hoursMsg.className = "msg error";
+                            return;
+                        }
+                        hoursData = entries;
+                        renderCalendar();
+                        hoursMsg.textContent = "已保存：" + data.count + " 天，合计 "
+                            + data.total_hours + " 小时";
+                        hoursMsg.className = "msg success";
+                    })
+                    .catch(function () {
+                        hoursMsg.textContent = "网络错误，请重试";
+                        hoursMsg.className = "msg error";
+                    })
+                    .finally(function () {
+                        hoursSave.disabled = false;
+                        hoursSave.textContent = "保存工天数据";
+                    });
+            }
+
+            hoursScroll.addEventListener("input", updateSummary);
+            hoursScroll.addEventListener("change", updateSummary);
+            periodPrev.addEventListener("click", function () { switchPeriod(-1); });
+            periodNext.addEventListener("click", function () { switchPeriod(1); });
+            hoursSave.addEventListener("click", saveHours);
 
             document.querySelectorAll(".js-open-editor").forEach(function (btn) {
                 btn.addEventListener("click", function () { openEditor(btn); });

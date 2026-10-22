@@ -3,7 +3,7 @@ from import_export.admin import ImportExportMixin
 from django.contrib import admin
 from django.utils.html import format_html
 
-from .models import Name, Project, Submission
+from .models import Name, Project, Submission, WorkHour
 
 
 class NameResource(resources.ModelResource):
@@ -11,7 +11,8 @@ class NameResource(resources.ModelResource):
 
     class Meta:
         model = Name
-        fields = ("id", "name")
+        fields = ("id", "name", "employee_no", "passport_no", "hourly_rate")
+        export_order = ("id", "name", "employee_no", "passport_no", "hourly_rate")
         import_id_fields = ("name",)
         skip_unchanged = True
         report_skipped = True
@@ -47,10 +48,20 @@ class SubmissionResource(resources.ModelResource):
             return ""
 
 
+class WorkHourResource(resources.ModelResource):
+    """工时记录导入导出。"""
+
+    class Meta:
+        model = WorkHour
+        fields = ("id", "name", "project", "date", "hours", "created_at")
+        export_order = ("id", "name", "project", "date", "hours", "created_at")
+
+
 @admin.register(Name)
 class NameAdmin(ImportExportMixin, admin.ModelAdmin):
-    list_display = ("name",)
-    search_fields = ("name",)
+    list_display = ("name", "employee_no", "passport_no", "hourly_rate")
+    list_editable = ("employee_no", "passport_no", "hourly_rate")
+    search_fields = ("name", "employee_no", "passport_no")
     resource_class = NameResource
 
 
@@ -95,3 +106,12 @@ class SubmissionAdmin(ImportExportMixin, admin.ModelAdmin):
             )
         except ValueError:
             return "未上传"
+
+
+@admin.register(WorkHour)
+class WorkHourAdmin(ImportExportMixin, admin.ModelAdmin):
+    list_display = ("name", "project", "date", "hours", "updated_at")
+    list_filter = ("project", "date")
+    search_fields = ("name", "project")
+    date_hierarchy = "date"
+    resource_class = WorkHourResource

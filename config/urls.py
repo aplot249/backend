@@ -15,10 +15,21 @@ urlpatterns = [
     path("api/list-project/", views.list_project, name="list-project"),
     path("api/submit/", views.submit_form, name="submit-form"),
     path("summary/", views.summary_view, name="summary"),
+    path("summary/export/", views.export_work_hours_excel, name="export-work-hours"),
     path(
         "api/submission/<int:submission_id>/update-card/",
         views.update_card_image,
         name="update-card",
+    ),
+    path(
+        "api/submission/<int:submission_id>/work-hours/",
+        views.work_hours,
+        name="work-hours",
+    ),
+    path(
+        "api/submission/<int:submission_id>/work-hours/save/",
+        views.save_work_hours,
+        name="save-work-hours",
     ),
 ]
 
