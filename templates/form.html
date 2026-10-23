@@ -51,6 +51,35 @@
         }
         .card .check-link:hover { text-decoration: underline; }
 
+        /* ---------- 填报关闭时的友好提示 ---------- */
+        .closed {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            gap: 6px;
+            padding: 8px 6px;
+        }
+        .closed .closed-icon { width: 54px; height: 54px; color: #667eea; }
+        .closed h2 { font-size: 17px; color: #333; line-height: 1.3; }
+        .closed .en { font-size: 12.5px; color: #888; }
+        .closed .tip { font-size: 12px; color: #aaa; margin-top: 2px; line-height: 1.5; }
+        .closed .go {
+            display: inline-block;
+            margin-top: 12px;
+            padding: 11px 22px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            font-size: 14px;
+            font-weight: 600;
+            text-decoration: none;
+        }
+        .closed .go:active { opacity: 0.85; }
+
         form {
             flex: 1;
             min-height: 0;
@@ -313,10 +342,29 @@
     <div class="card">
         <div class="head">
             <h1>Work Attendance Card Statistics</h1>
+            {% if form_enabled %}
             <p class="subtitle">Please fill in the information below and submit</p>
             <a class="check-link" href="/check/">Check my work hours &rarr;</a>
+            {% else %}
+            <p class="subtitle">当前填报阶段已结束</p>
+            {% endif %}
         </div>
 
+        {% if not form_enabled %}
+        <div class="closed">
+            <svg class="closed-icon" viewBox="0 0 48 48" fill="none" stroke="currentColor"
+                 stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="9" width="40" height="32" rx="5"></rect>
+                <path d="M4 19h40"></path>
+                <path d="M15 5v7M33 5v7"></path>
+                <path d="M16 29l6 6 12-12"></path>
+            </svg>
+            <h2>当前填报阶段已结束</h2>
+            <h2>Work card submission is closed</h2>
+            <p class="tip">如需查看你已录入的工时，请进入查询系统<br>You can still check your recorded work hours</p>
+            <a class="go" href="/check/">进入查询系统 Check my work hours &rarr;</a>
+        </div>
+        {% else %}
         <form id="form">
             <div class="grid">
                 <div class="field field-name">
@@ -369,8 +417,10 @@
                 <button type="submit" id="submitBtn">Submit</button>
             </div>
         </form>
+        {% endif %}
     </div>
 
+    {% if form_enabled %}
     <script>
         function debounce(fn, delay) {
             let timer;
@@ -609,5 +659,6 @@
             message.className = "message " + type;
         }
     </script>
+    {% endif %}
 </body>
 </html>

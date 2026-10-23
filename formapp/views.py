@@ -53,14 +53,15 @@ PDF_IMAGE_JPEG_QUALITY = 62
 
 
 def form_view(request):
-    """首页：按系统开关展示工卡填报表单，或改为展示工时查询页。
+    """工卡填报表单页（`/`）。
 
-    开关来自数据库（后台「系统开关」），`form_enabled=True` 展示 form.html，
-    关闭时首页直接展示 check.html（暂停填报，只允许查询）。
+    两个页面路由各自独立：`/` 是填报页、`/check/` 是查询页。
+    后台「系统开关」关闭填报时，`/` 仍然留在填报页上，只是把表单换成
+    「当前填报阶段已结束，进入查询系统」的友好提示 + 去查询页的入口。
     """
-    if SystemSetting.get_setting().form_enabled:
-        return render(request, "form.html")
-    return render(request, "check.html", {"form_enabled": False})
+    return render(
+        request, "form.html", {"form_enabled": SystemSetting.get_setting().form_enabled}
+    )
 
 
 def check_view(request):
@@ -758,38 +759,49 @@ def export_cards_pdf(request):
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import mm
+    from reportlab.platypus import Image as ReportImage
     from reportlab.platypus import (
-        Image as ReportImage,
+        Paragraph,
+        SimpleDocTemplate,
+        Spacer,
+        Table,
+        TableStyle,
     )
-    from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer
 
     font = _pdf_register_font()
-    margin = 16 * mm
+    margin = 14 * mm
     content_width = A4[0] - margin * 2
-    # 单张图片高度上限，给上面的文字留出空间
-    image_max_height = 320
+    # 一页正文的可用高度（已扣掉上下边距和页脚留白）
+    page_usable = A4[1] - margin - (margin + 6 * mm)
+    # 版面：左右两栏并排，一栏一个人，所以一页基本就是两个人
+    column_gap = 8
+    column_width = (content_width - column_gap) / 2
+    cell_padding = 5
+    inner_width = column_width - cell_padding * 2
+    image_max_height = 330      # 单张工卡图片的高度上限
+    text_overhead = 78          # 姓名 / 工号 / 项目 / 工时那几行文字的高度估算
 
     title_style = ParagraphStyle(
-        "title", fontName=font, fontSize=17, leading=24, spaceAfter=4
+        "title", fontName=font, fontSize=16, leading=21, spaceAfter=2
     )
     head_style = ParagraphStyle(
-        "head", fontName=font, fontSize=9.5, leading=14,
+        "head", fontName=font, fontSize=9, leading=13,
         textColor=colors.HexColor("#666666"),
     )
     name_style = ParagraphStyle(
-        "name", fontName=font, fontSize=13, leading=19, spaceBefore=4,
+        "name", fontName=font, fontSize=11.5, leading=16,
         textColor=colors.HexColor("#222222"),
     )
     meta_style = ParagraphStyle(
-        "meta", fontName=font, fontSize=9.5, leading=14,
+        "meta", fontName=font, fontSize=8.5, leading=12,
         textColor=colors.HexColor("#666666"),
     )
     project_style = ParagraphStyle(
-        "project", fontName=font, fontSize=11.5, leading=16, spaceBefore=6,
+        "project", fontName=font, fontSize=10, leading=14, spaceBefore=3,
         textColor=colors.HexColor("#1f3d7a"),
     )
     note_style = ParagraphStyle(
-        "note", fontName=font, fontSize=10, leading=15,
+        "note", fontName=font, fontSize=9, leading=13,
         textColor=colors.HexColor("#2f6fb2"),
     )
 
@@ -804,22 +816,29 @@ def export_cards_pdf(request):
     story = [
         Paragraph("工人考勤工卡汇总", title_style),
         Paragraph(
-            escape(f"考勤周期：{period_label}　　生成时间：{datetime.now():%Y-%m-%d %H:%M}"),
-            head_style,
-        ),
-        Paragraph(
             escape(
-                f"共 {len(rows)} 人：{with_card} 人有工卡（{card_count} 张），"
-                f"{len(rows) - with_card} 人本周期无考勤工卡"
+                f"考勤周期：{period_label}　生成时间：{datetime.now():%Y-%m-%d %H:%M}"
+                f"　共 {len(rows)} 人 / {card_count} 张工卡（{with_card} 人有工卡）"
             ),
             head_style,
         ),
-        Spacer(1, 6),
+        Spacer(1, 4),
     ]
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        for index, row in enumerate(rows, 1):
-            has_image = False
+
+        def measure_cell(cell):
+            """估算一格内容的高度（用于保证一格不会被跨页拆开）。"""
+            total = 0
+            for flowable in cell:
+                if isinstance(flowable, Spacer):
+                    total += flowable.height
+                    continue
+                _w, h = flowable.wrap(inner_width, 10000)
+                total += h + flowable.getSpaceBefore()
+            return total + cell_padding * 2
+
+        def build_worker_cell(index, row, card_items, image_cap):
             chips = []
             if row["employee_no"]:
                 chips.append("工号 " + row["employee_no"])
@@ -827,78 +846,139 @@ def export_cards_pdf(request):
                 chips.append("护照 " + row["passport_no"])
             if row["vacation"]:
                 chips.append("在休假")
-
-            story.append(Paragraph(f"{index}. {escape(row['name'])}", name_style))
+            headline = f"{index}. {escape(row['name'])}"
             if chips:
-                story.append(Paragraph(escape("　·　".join(chips)), meta_style))
-
-            if not row["cards"]:
-                note = (
-                    "在休假，本周期无考勤工卡"
-                    if row["vacation"]
-                    else "本周期无考勤工卡（未提交工卡）"
+                headline += (
+                    f' <font color="#777777" size="8">{escape(" · ".join(chips))}</font>'
                 )
-                story.append(Paragraph(note, note_style))
-                story.append(Spacer(1, 10))
-                continue
 
-            for submission in row["cards"]:
-                total, days = hours_by_card.get(submission.pk, (Decimal("0"), 0))
-                story.append(
+            cell = [Paragraph(headline, name_style)]
+            if not row["cards"]:
+                cell.append(
+                    Paragraph(
+                        "在休假，本周期无考勤工卡"
+                        if row["vacation"]
+                        else "本周期无考勤工卡（未提交工卡）",
+                        note_style,
+                    )
+                )
+
+            for submission, total, days, image in card_items:
+                cell.append(
                     Paragraph(
                         escape(f"项目：{submission.project or '（未填项目）'}"),
                         project_style,
                     )
                 )
-                story.append(
+                cell.append(
                     Paragraph(
                         escape(
-                            f"提交时间：{submission.created_at:%Y-%m-%d %H:%M}"
-                            f"　工时合计：{_format_hours(total)} 小时（出勤 {days} 天）"
+                            f"提交 {submission.created_at:%Y-%m-%d %H:%M}"
+                            f" · 工时 {_format_hours(total)} 小时 · 出勤 {days} 天"
                         ),
                         meta_style,
                     )
                 )
-
-                if submission.project == VACATION_PROJECT:
-                    story.append(Paragraph("在休假，本周期无考勤工卡", note_style))
-                    continue
-                if not submission.card_image:
-                    story.append(Paragraph("（该工卡未上传图片）", meta_style))
-                    continue
-
-                # 压缩后落盘再交给 reportlab，避免原图（几 MB）撑爆 PDF
-                path = os.path.join(tmpdir, f"card_{submission.pk}.jpg")
-                try:
-                    with default_storage.open(submission.card_image.name, "rb") as fh:
-                        raw = fh.read()
-                    with Image.open(io.BytesIO(raw)) as img:
-                        # JPEG 直接在解码阶段降采样，大图处理快很多
-                        try:
-                            img.draft("RGB", (PDF_IMAGE_MAX_WIDTH, PDF_IMAGE_MAX_WIDTH))
-                        except Exception:
-                            pass
-                        img = img.convert("RGB")
-                        width, height = img.size
-                        if width > PDF_IMAGE_MAX_WIDTH:
-                            height = round(height * PDF_IMAGE_MAX_WIDTH / width)
-                            width = PDF_IMAGE_MAX_WIDTH
-                            img = img.resize((width, height), Image.LANCZOS)
-                        img.save(
-                            path, "JPEG", quality=PDF_IMAGE_JPEG_QUALITY, optimize=True
-                        )
-                except Exception:
-                    story.append(Paragraph("（工卡图片无法读取）", meta_style))
+                if image is None:
+                    if submission.project == VACATION_PROJECT:
+                        cell.append(Paragraph("在休假，本周期无考勤工卡", note_style))
+                    elif submission.card_image:
+                        cell.append(Paragraph("（工卡图片无法读取）", meta_style))
+                    else:
+                        cell.append(Paragraph("（该工卡未上传图片）", meta_style))
                     continue
 
-                scale = min(content_width / width, image_max_height / height, 1)
-                story.append(Spacer(1, 4))
-                story.append(
+                path, width, height = image
+                scale = min(inner_width / width, image_cap / height, 1)
+                cell.append(Spacer(1, 3))
+                cell.append(
                     ReportImage(path, width=width * scale, height=height * scale)
                 )
-                has_image = True
+            return cell
 
-            story.append(PageBreak() if has_image else Spacer(1, 12))
+        # 先给每个人做一格内容（姓名 → 工号 → 项目 → 考勤图片）
+        cells = []
+        for index, row in enumerate(rows, 1):
+            card_items = []
+            for submission in row["cards"]:
+                total, days = hours_by_card.get(submission.pk, (Decimal("0"), 0))
+                image = None
+                if submission.project != VACATION_PROJECT and submission.card_image:
+                    # 压缩后落盘再交给 reportlab，避免原图（几 MB）撑爆 PDF
+                    path = os.path.join(tmpdir, f"card_{submission.pk}.jpg")
+                    try:
+                        with default_storage.open(submission.card_image.name, "rb") as fh:
+                            raw = fh.read()
+                        with Image.open(io.BytesIO(raw)) as img:
+                            # JPEG 直接在解码阶段降采样，大图处理快很多
+                            try:
+                                img.draft(
+                                    "RGB", (PDF_IMAGE_MAX_WIDTH, PDF_IMAGE_MAX_WIDTH)
+                                )
+                            except Exception:
+                                pass
+                            img = img.convert("RGB")
+                            width, height = img.size
+                            if width > PDF_IMAGE_MAX_WIDTH:
+                                height = round(height * PDF_IMAGE_MAX_WIDTH / width)
+                                width = PDF_IMAGE_MAX_WIDTH
+                                img = img.resize((width, height), Image.LANCZOS)
+                            img.save(
+                                path,
+                                "JPEG",
+                                quality=PDF_IMAGE_JPEG_QUALITY,
+                                optimize=True,
+                            )
+                        image = (path, width, height)
+                    except Exception:
+                        image = None
+                card_items.append((submission, total, days, image))
+
+            # 一个人有多张工卡时把每张压一压，保证他这一格能放进一页
+            image_count = sum(1 for item in card_items if item[3])
+            image_cap = image_max_height
+            if image_count > 1:
+                image_cap = max(
+                    120,
+                    (page_usable - 16 - image_count * text_overhead) / image_count,
+                )
+
+            cell = build_worker_cell(index, row, card_items, image_cap)
+            used = measure_cell(cell)
+            if used > page_usable - 12:
+                # 文字折行多、估算偏矮时，按实际高度把图片再压一压，重排一格
+                image_cap = max(90, image_cap * (page_usable - 12) / used * 0.96)
+                cell = build_worker_cell(index, row, card_items, image_cap)
+
+            cells.append(cell)
+
+        # 两两并排成一行：一行就是两个人（格子矮的时候会自动多排几行）
+        table_data = []
+        for position in range(0, len(cells), 2):
+            pair = cells[position : position + 2]
+            if len(pair) == 1:
+                pair = pair + [""]
+            table_data.append(pair)
+
+        table = Table(
+            table_data,
+            colWidths=[column_width, column_width],
+            splitByRow=1,
+            splitInRow=0,   # 一格已保证放得进一页，跨页时整行挪到下一页，不把人拆开
+        )
+        table.setStyle(
+            TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), cell_padding),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), cell_padding),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                    ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#d8dce6")),
+                ]
+            )
+        )
+        story.append(table)
 
         buffer = io.BytesIO()
         document = SimpleDocTemplate(

@@ -80,7 +80,9 @@ python manage.py runserver
 整理页顶部「导出考勤工卡 PDF」按钮，把每个工人的工卡抽成 PDF，供打印 / 存档 / 发人核对。
 
 - 顺序：**姓名 → 工号（+ 护照号）→ 项目 → 提交时间 + 工时合计 → 考勤图片**，
-  一人接一人往下排；有工卡图片的工人每人自动另起一页，无工卡的人紧凑排列
+  **左右两栏并排、一栏一个人**，一页基本放两个人（带图的人图片约 8.6cm 宽）；
+  格子矮的人（休假 / 未提交，只有一两行文字）会自动在同一页多排几行，尽量不浪费纸
+- 一格（一个人）保证不会被跨页拆开：单格超高一页时会自动把该格图片再压一压
 - 口径与整理页一致：只取每个「人 + 项目」**最新提交**的那张工卡
 - **休假 / 未提交工卡的工人也会列出来**：姓名行标注「在休假」，正文写明
   「在休假，本周期无考勤工卡」或「本周期无考勤工卡（未提交工卡）」，不会漏人
@@ -92,8 +94,8 @@ python manage.py runserver
 - 依赖 `reportlab`（已加进 requirements.txt，部署需 `pip install reportlab`），
   中文用 reportlab 自带 CID 字体 `STSong-Light`，无需外挂字体文件
 
-> 150 人 / 103 张工卡时约 103 页、15 MB、生成 11 秒左右；工卡再多会更久，
-> 页面按钮点了会显示「生成中...」。若服务器（gunicorn/uwsgi）超时时间 < 60 秒，建议调大。
+> 150 人 / 103 张工卡时约 39 页、15 MB、生成 10 秒左右（旧版一人一页要 103 页）；
+> 工卡再多会更久，页面按钮点了会显示「生成中...」。若服务器（gunicorn/uwsgi）超时时间 < 60 秒，建议调大。
 
 ## 首页开关：填报表单 / 工时查询（数据库变量控制）
 
@@ -101,11 +103,14 @@ python manage.py runserver
 
 | `form_enabled` | 首页 `/` | `/check/` | `POST /api/submit/` |
 |---|---|---|---|
-| `True`（默认） | 展示 `form.html`（工卡填报） | 正常访问 | 正常提交 |
-| `False` | 改为展示 `check.html`（只能查工时） | 正常访问 | **403 拒绝**（防止绕过页面直接调接口） |
+| `True`（默认） | 完整的工卡填报表单 | 正常访问 | 正常提交 |
+| `False` | 仍是 `/`，但表单换成「当前填报阶段已结束，进入查询系统」的提示页 + 去查询页的按钮 | 正常访问 | **403 拒绝**（防止绕过页面直接调接口） |
 
+- **两个页面的路由始终独立**：`/` 是填报页、`/check/` 是查询页，关闭填报不会把 `/` 变成查询页，
+  只是在 `/` 上给出友好提示（中文 + 英文双行），并提供「进入查询系统 →」按钮跳到 `/check/`
 - 后台位置：管理后台 → `FORMAPP` → **系统开关** → 勾/取消「展示填报表单」→ 保存，立即生效，不用重启
-- 关闭填报时，查询页会显示一行 `Work card submission is closed. You can only check your work hours here.`，
+- 关闭填报时：填报页隐藏表单与顶部「Check my work hours →」小链接（只留居中提示），
+  查询页显示 `Work card submission is closed. You can only check your work hours here.`
   并隐藏「← Back to the submission form」返回链接（避免点了又回到自己）
 - 数据表随迁移 `formapp/migrations/0007_systemsetting.py` 建立，部署需执行 `python manage.py migrate`
 - 代码入口：`SystemSetting.get_setting()`；首页渲染在 `form_view()` 里按开关二选一
