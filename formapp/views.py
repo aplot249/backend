@@ -50,27 +50,183 @@ def form_view(request):
 
 
 def check_view(request):
-    """工时查询页：工人按姓名查询自己已录入的工时（只读，不能编辑）。"""
+    """工时查询页：工人输入「姓名 + 工号/护照号」核对身份后查询自己的工时（只读）。"""
     return render(request, "check.html")
+
+
+def _normalize_code(value):
+    """工号 / 护照号匹配用：去掉所有空白并统一大写。"""
+    return re.sub(r"\s+", "", str(value or "")).upper()
+
+
+def _mask_code(value):
+    """护照号脱敏展示：只保留前 2 位与后 2 位。"""
+    text = (value or "").strip()
+    if len(text) <= 4:
+        return text
+    return text[:2] + "*" * (len(text) - 4) + text[-2:]
+
+
+def _person_codes(person):
+    return (
+        _normalize_code(person.employee_no),
+        _normalize_code(person.passport_no),
+    )
+
+
+def _find_persons(keyword, limit=20, include_code=False):
+    """按姓名找人，返回 (精确匹配, 模糊匹配)。
+
+    `include_code=True` 时同时按工号 / 护照号匹配（大小写、空格都不敏感：
+    `wx0339` / `WX 0339` / `WX0339 ` 都能匹配到工号 WX0339）。
+    """
+    name_key = _normalize_name(keyword)
+    code_key = _normalize_code(keyword) if include_code else ""
+    if not name_key and not code_key:
+        return [], []
+
+    exact, fuzzy = [], []
+    for person in Name.objects.all().only("name", "employee_no", "passport_no"):
+        codes = _person_codes(person)
+        if _normalize_name(person.name) == name_key or (
+            code_key and code_key in codes
+        ):
+            exact.append(person)
+        elif (name_key and name_key in _normalize_name(person.name)) or (
+            code_key and any(code_key in code for code in codes if code)
+        ):
+            fuzzy.append(person)
+        if len(exact) + len(fuzzy) >= limit * 4:
+            break
+    return exact[:limit], fuzzy[:limit]
+
+
+def _person_payload(person):
+    return {
+        "name": person.name,
+        "employee_no": person.employee_no,
+        "passport_no": _mask_code(person.passport_no),
+    }
+
+
+@require_GET
+def check_search(request):
+    """查询页的姓名联想（大小写、空格不敏感）。"""
+    keyword = (request.GET.get("q") or "").strip()
+    if not keyword:
+        return JsonResponse({"results": []})
+    exact, fuzzy = _find_persons(keyword)
+    return JsonResponse(
+        {"results": [_person_payload(p) for p in (exact + fuzzy)]}
+    )
 
 
 @require_GET
 def check_hours(request):
-    """按姓名查询整理后的工时数据。
+    """查询整理后的工时数据：**姓名 +（工号 / 护照号）** 两项都对上才返回结果。
 
     口径与整理页一致：只取每个项目「最新提交」的工卡上已录入的工时，
     历史提交的工卡不展示；只返回工时，不含任何可编辑 / 删除的入口。
     """
-    name = (request.GET.get("q") or "").strip()
-    if not name:
-        return JsonResponse({"ok": False, "message": "Please enter your name"}, status=400)
+    name_raw = (request.GET.get("name") or request.GET.get("q") or "").strip()
+    code_raw = (request.GET.get("code") or "").strip()
 
-    key = _normalize_name(name)
+    if not name_raw:
+        return JsonResponse(
+            {
+                "ok": False,
+                "field": "name",
+                "message": "Please enter your name.",
+            },
+            status=400,
+        )
+    if not code_raw:
+        return JsonResponse(
+            {
+                "ok": False,
+                "field": "code",
+                "message": "Please enter your employee No. or passport No.",
+            },
+            status=400,
+        )
+
+    # 1) 先按姓名找人
+    exact, fuzzy = _find_persons(name_raw)
+    candidates = exact or fuzzy
+
+    if not candidates:
+        # 姓名库里没有，看工卡提交里有没有这个人
+        key = _normalize_name(name_raw)
+        submitted = any(
+            _normalize_name(person_name) == key
+            for person_name, _ in _latest_submission_map()
+        )
+        if not submitted:
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "found": False,
+                    "field": "name",
+                    "message": "No record found for this name. Please check the spelling "
+                    "(it should be the same as on your work card).",
+                }
+            )
+        return JsonResponse(
+            {
+                "ok": True,
+                "found": False,
+                "field": "code",
+                "message": "We have no employee No. / passport No. on file for this name. "
+                "Please contact the site office.",
+            }
+        )
+
+    if len(candidates) > 1:
+        return JsonResponse(
+            {
+                "ok": True,
+                "found": False,
+                "multiple": True,
+                "field": "name",
+                "candidates": [_person_payload(p) for p in candidates],
+                "message": "Several people match this name. Please choose one below.",
+            }
+        )
+
+    person = candidates[0]
+
+    # 2) 再校验工号 / 护照号是否属于这个人（大小写、空格都不敏感）
+    code_key = _normalize_code(code_raw)
+    employee_key, passport_key = _person_codes(person)
+    if not employee_key and not passport_key:
+        return JsonResponse(
+            {
+                "ok": True,
+                "found": False,
+                "field": "code",
+                "message": "We have no employee No. / passport No. on file for this name. "
+                "Please contact the site office.",
+            }
+        )
+    if code_key not in (employee_key, passport_key):
+        return JsonResponse(
+            {
+                "ok": True,
+                "found": False,
+                "field": "code",
+                "message": "This employee No. / passport No. does not match this name. "
+                "Please check it and try again.",
+            }
+        )
+
+    key = _normalize_name(person.name)
+    matched_by = "passport" if code_key == passport_key else "employee_no"
+
     # 每个「人 + 项目」最新工卡，筛出这个人的
     pairs = [
         (project, submission_id)
-        for (person, project), submission_id in _latest_submission_map().items()
-        if _normalize_name(person) == key
+        for (person_name, project), submission_id in _latest_submission_map().items()
+        if _normalize_name(person_name) == key
     ]
 
     if not pairs:
@@ -78,9 +234,8 @@ def check_hours(request):
             {
                 "ok": True,
                 "found": False,
-                "name": name,
-                "message": "No submitted record found for this name. "
-                "Please make sure the spelling matches your work card.",
+                "field": "name",
+                "message": "No work card has been submitted under this name yet.",
             }
         )
 
@@ -97,15 +252,6 @@ def check_hours(request):
     ).order_by("date"):
         if row.hours > 0:  # 只展示有工时的日期
             hours_by_submission.setdefault(row.submission_id, []).append(row)
-
-    person = next(
-        (
-            p
-            for p in Name.objects.all().only("name", "employee_no")
-            if _normalize_name(p.name) == key
-        ),
-        None,
-    )
 
     total = Decimal("0")
     projects = []
@@ -139,8 +285,11 @@ def check_hours(request):
         {
             "ok": True,
             "found": True,
-            "name": person.name if person else submissions[pairs[0][1]].name,
-            "employee_no": person.employee_no if person else "",
+            "name": person.name,
+            "employee_no": person.employee_no,
+            "passport_no": _mask_code(person.passport_no),
+            # 说明这次是靠工号还是护照号核对通过的，方便工人确认查到的是自己
+            "matched_by": matched_by,
             "project_count": len(projects),
             "total_hours": float(total),
             "total_hours_label": _format_hours(total),

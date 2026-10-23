@@ -60,9 +60,12 @@
             margin-bottom: 6px;
             font-weight: 500;
         }
+        .search .field-block { position: relative; margin-bottom: 8px; }
+        .search .field-block:last-of-type { margin-bottom: 0; }
         .search-row { display: flex; gap: 8px; }
-        .search-row input {
+        .search-row input, .field-block > input {
             flex: 1;
+            width: 100%;
             min-width: 0;
             border: 1px solid #ddd;
             border-radius: 8px;
@@ -72,9 +75,17 @@
             font-family: inherit;
             transition: border-color 0.2s, box-shadow 0.2s;
         }
-        .search-row input:focus {
+        .search-row input:focus, .field-block > input:focus {
             border-color: #667eea;
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+        }
+        /* 姓名 / 工号核对不通过时标红 */
+        .field-block > input.invalid {
+            border-color: #e74c3c;
+            background: #fffafa;
+        }
+        .field-block > input.invalid:focus {
+            box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.15);
         }
         .search-row button {
             flex: none;
@@ -108,7 +119,32 @@
         }
         .suggestions .item { padding: 9px 12px; cursor: pointer; font-size: 14px; color: #333; }
         .suggestions .item:hover { background: #f0f2ff; }
+        .suggestions .item .emp { font-size: 12px; color: #8b90c9; margin-left: 6px; }
         .suggestions .empty { padding: 9px 12px; font-size: 13px; color: #aaa; }
+
+        .hint { font-size: 11px; color: #aaa; margin-top: 5px; }
+
+        /* 多人匹配时让工人自己选 */
+        .candidates { margin-top: 4px; }
+        .candidate {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            width: 100%;
+            text-align: left;
+            border: 1px solid #e6e8f2;
+            background: #fafbff;
+            border-radius: 10px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: #333;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .candidate:hover { border-color: #667eea; background: #f2f4ff; }
+        .candidate .cname { font-weight: 600; }
+        .candidate .ccode { font-size: 12px; color: #8b90c9; }
 
         /* ---------- 结果区：内部滚动 ---------- */
         .result {
@@ -249,22 +285,32 @@
     <div class="card">
         <div class="head">
             <h1>My Work Hours</h1>
-            <p class="subtitle">Search your name to check your recorded work hours (read only)</p>
+            <p class="subtitle">Enter your name + employee No. (or passport No.) to check your work hours</p>
             <a class="back" href="/">&larr; Back to the submission form</a>
         </div>
 
         <div class="search">
-            <label for="name">Name</label>
-            <div class="search-row">
+            <div class="field-block">
+                <label for="name">Name</label>
                 <input type="text" id="name" autocomplete="off" autocapitalize="characters"
                        spellcheck="false" placeholder="Type your name">
-                <button type="button" id="searchBtn">Search</button>
+                <div class="suggestions" id="nameSuggest"></div>
             </div>
-            <div class="suggestions" id="nameSuggest"></div>
+
+            <div class="field-block">
+                <label for="code">Employee No. / Passport No.</label>
+                <div class="search-row">
+                    <input type="text" id="code" autocomplete="off" autocapitalize="characters"
+                           spellcheck="false" placeholder="Employee No. or passport No.">
+                    <button type="button" id="searchBtn">Search</button>
+                </div>
+            </div>
+
+            <div class="hint">Both must match the same person. Case and spaces are ignored.</div>
         </div>
 
         <div class="result" id="result">
-            <div class="tip">Enter your name above and tap Search to see your work hours.</div>
+            <div class="tip">Enter your name and your employee No. (or passport No.), then tap Search.</div>
         </div>
 
         <div class="readonly-note">Only the latest submitted work card of each project is shown. Read only.</div>
@@ -282,11 +328,22 @@
         }
 
         var input = document.getElementById("name");
+        var codeInput = document.getElementById("code");
         var box = document.getElementById("nameSuggest");
         var result = document.getElementById("result");
         var searchBtn = document.getElementById("searchBtn");
+        // 从联想 / 候选人列表里选中的精确姓名
+        var pickedName = "";
 
-        /* ---------- 姓名自动补全 ---------- */
+        /* 哪一项填错了就标红哪一项 */
+        function markInvalid(field) {
+            input.classList.remove("invalid");
+            codeInput.classList.remove("invalid");
+            if (field === "name") input.classList.add("invalid");
+            if (field === "code") codeInput.classList.add("invalid");
+        }
+
+        /* ---------- 姓名联想 ---------- */
         function renderSuggestions(items) {
             box.innerHTML = "";
             if (!items.length) {
@@ -298,11 +355,22 @@
                 items.forEach(function (item) {
                     var div = document.createElement("div");
                     div.className = "item";
-                    div.textContent = item;
+                    div.appendChild(document.createTextNode(item.name));
+                    if (item.employee_no) {
+                        var emp = document.createElement("span");
+                        emp.className = "emp";
+                        emp.textContent = item.employee_no;
+                        div.appendChild(emp);
+                    }
                     div.addEventListener("mousedown", function (e) {
                         e.preventDefault();
-                        input.value = item;
+                        input.value = item.name;
+                        pickedName = item.name;   // 选中后按这个精确姓名查
                         box.style.display = "none";
+                        if (!codeInput.value.trim()) {
+                            codeInput.focus();    // 还没填工号 / 护照号就先让它填
+                            return;
+                        }
                         search();
                     });
                     box.appendChild(div);
@@ -314,22 +382,31 @@
         var suggest = debounce(function () {
             var q = input.value.trim();
             if (!q) { box.style.display = "none"; return; }
-            fetch("/api/search-name/?q=" + encodeURIComponent(q))
+            fetch("/api/check-search/?q=" + encodeURIComponent(q))
                 .then(function (r) { return r.json(); })
                 .then(function (data) { renderSuggestions(data.results || []); })
                 .catch(function () { box.style.display = "none"; });
         }, 250);
 
-        input.addEventListener("input", suggest);
+        // 手动改了输入框内容就不再沿用之前选中的姓名
+        input.addEventListener("input", function () {
+            pickedName = "";
+            suggest();
+        });
         input.addEventListener("focus", function () {
             if (input.value.trim()) suggest();
         });
-        input.addEventListener("keydown", function (e) {
-            if (e.key === "Enter") {
-                e.preventDefault();
-                box.style.display = "none";
-                search();
-            }
+        [input, codeInput].forEach(function (field) {
+            field.addEventListener("keydown", function (e) {
+                if (e.key === "Enter") {
+                    e.preventDefault();
+                    box.style.display = "none";
+                    search();
+                }
+            });
+            field.addEventListener("input", function () {
+                field.classList.remove("invalid");
+            });
         });
         document.addEventListener("click", function (e) {
             if (!input.contains(e.target) && !box.contains(e.target)) {
@@ -412,13 +489,43 @@
             return card;
         }
 
+        function renderCandidates(data) {
+            var wrap = el("div", "candidates");
+            wrap.appendChild(el("div", "month-title", "Several people match, please choose one:"));
+            data.candidates.forEach(function (item) {
+                var btn = el("button", "candidate");
+                btn.type = "button";
+                btn.appendChild(el("span", "cname", item.name));
+                var extra = [];
+                if (item.employee_no) extra.push("No. " + item.employee_no);
+                if (item.passport_no) extra.push("Passport " + item.passport_no);
+                if (extra.length) btn.appendChild(el("span", "ccode", extra.join(" · ")));
+                btn.addEventListener("click", function () {
+                    input.value = item.name;
+                    pickedName = item.name;
+                    if (!codeInput.value.trim()) {
+                        codeInput.focus();   // 还没填工号 / 护照号就先让它填
+                        return;
+                    }
+                    search();
+                });
+                wrap.appendChild(btn);
+            });
+            return wrap;
+        }
+
         function render(data) {
             result.innerHTML = "";
 
             if (!data.found) {
-                result.appendChild(el("div", "tip", data.message || "No record found."));
+                markInvalid(data.field);
+                result.appendChild(el("div", "tip error", data.message || "No record found."));
+                if (data.multiple && data.candidates && data.candidates.length) {
+                    result.appendChild(renderCandidates(data));
+                }
                 return;
             }
+            markInvalid(null);
 
             var worker = el("div", "worker");
             worker.appendChild(el("div", "name", data.name));
@@ -430,6 +537,14 @@
                 b.textContent = data.employee_no;
                 chip.appendChild(b);
                 chips.appendChild(chip);
+            }
+            if (data.passport_no) {
+                var pchip = el("span", "chip");
+                pchip.appendChild(document.createTextNode("Passport "));
+                var pb = document.createElement("b");
+                pb.textContent = data.passport_no;
+                pchip.appendChild(pb);
+                chips.appendChild(pchip);
             }
             var projChip = el("span", "chip");
             projChip.appendChild(document.createTextNode("Projects: "));
@@ -461,22 +576,40 @@
         }
 
         function search() {
-            var q = input.value.trim();
-            if (!q) {
+            var name = input.value.trim();
+            var code = codeInput.value.trim();
+
+            if (!name) {
+                markInvalid("name");
                 result.innerHTML = "";
-                result.appendChild(el("div", "tip error", "Please enter your name first."));
+                result.appendChild(el("div", "tip error", "Please enter your name."));
+                input.focus();
                 return;
             }
+            if (!code) {
+                markInvalid("code");
+                result.innerHTML = "";
+                result.appendChild(el("div", "tip error",
+                    "Please enter your employee No. or passport No."));
+                codeInput.focus();
+                return;
+            }
+            markInvalid(null);
+
+            // 姓名（选中联想时用精确姓名）+ 工号 / 护照号 一起提交，后端双项核对
+            var url = "/api/check-hours/?name=" + encodeURIComponent(pickedName || name)
+                + "&code=" + encodeURIComponent(code);
 
             searchBtn.disabled = true;
             searchBtn.textContent = "...";
             result.innerHTML = "";
             result.appendChild(el("div", "tip", "Loading..."));
 
-            fetch("/api/check-hours/?q=" + encodeURIComponent(q))
+            fetch(url)
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
                     if (!data || !data.ok) {
+                        markInvalid(data && data.field);
                         result.innerHTML = "";
                         result.appendChild(el("div", "tip error",
                             (data && data.message) || "Query failed. Please try again."));
@@ -492,16 +625,26 @@
                     searchBtn.disabled = false;
                     searchBtn.textContent = "Search";
                     result.scrollTop = 0;
+                    pickedName = "";   // 查完就清掉，下次按输入框内容查
                 });
         }
 
-        /* 支持 /check/?q=姓名 直接带出结果 */
+        /* 支持 /check/?name=姓名 预填姓名（工号 / 护照号仍需本人填写） */
         (function () {
             var params = new URLSearchParams(window.location.search);
-            var q = (params.get("q") || "").trim();
-            if (q) {
-                input.value = q;
+            var name = (params.get("name") || params.get("q") || "").trim();
+            var code = (params.get("code") || "").trim();
+            if (name) {
+                input.value = name;
+                pickedName = name;
+            }
+            if (code) {
+                codeInput.value = code;
+            }
+            if (name && code) {
                 search();
+            } else if (name) {
+                codeInput.focus();
             }
         })();
     </script>
