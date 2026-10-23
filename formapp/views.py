@@ -694,7 +694,11 @@ def _collect_card_pdf_rows(period_key=None):
     """按工人汇总考勤工卡：每人一条，含工号、项目、提交时间、工时与工卡图片。
 
     period_key 为 None 时不按考勤周期筛选（导出全部最新工卡）；
-    否则只取「工卡提交时间」落在该周期（上月 21 日 ~ 本月 20 日）的工卡。
+    否则按下面两条取并集（与整理页 / Excel 导出的口径对齐）：
+      1. 工卡的**录入月份**（`_payroll_month(created_at)`，整理页就是这么标的月份）
+      2. 工卡上已登记工时的**日期**落在考勤区间（上月 21 日 ~ 本月 20 日）内
+    因为实际是「21 号之后才把上个月的卡提交上来」，只看提交时间的周期键会把
+    9/21~10/20 那批 10 月提交的卡算到 11 月周期去。
     """
     start, end = _period_range(period_key) if period_key else (None, None)
 
@@ -718,12 +722,28 @@ def _collect_card_pdf_rows(period_key=None):
             item["days"],
         )
 
+    # 每张工卡上已登记工时的日期，用于判断这张卡属于哪个考勤周期
+    hours_dates = {}
+    for submission_id, work_date in WorkHour.objects.filter(
+        submission_id__in=set(submissions)
+    ).values_list("submission_id", "date"):
+        hours_dates.setdefault(submission_id, set()).add(work_date)
+
+    def card_in_period(submission):
+        if period_key is None:
+            return True
+        # ① 整理页标注的录入月份
+        if _payroll_month(submission.created_at) == period_key:
+            return True
+        # ② 卡上登记工时的日期落在该考勤区间内
+        return any(start <= d <= end for d in hours_dates.get(submission.pk, ()))
+
     cards_by_person = {}
     for (name, project), submission_id in latest.items():
         submission = submissions.get(submission_id)
         if submission is None:
             continue
-        if period_key and _period_key(submission.created_at.date()) != period_key:
+        if not card_in_period(submission):
             continue
         cards_by_person.setdefault(_normalize_name(name), []).append(submission)
 
@@ -756,6 +776,8 @@ def _collect_card_pdf_rows(period_key=None):
                 "passport_no": person.passport_no if person else "",
                 "cards": cards,
                 "vacation": key in vacation_keys,
+                # 姓名不在姓名库里：整理页看不到这张卡（也没法在那儿裁剪 / 录工时）
+                "in_name_lib": person is not None,
             }
         )
     rows.sort(key=lambda row: row["name"])
@@ -774,7 +796,8 @@ def export_cards_pdf(request):
     - 版面：左右两栏 × 上下两行，**一页 4 个人**；图片按格子高度自动等比缩放，
       一格最多占半页，放不进就自动压图，且保证一个人的内容不会被跨页拆开
     - 休假 / 未提交工卡的工人也会列出来，并写明「在休假，本周期无考勤工卡」
-    - `?month=all`（默认）导出全部；`?month=YYYY-MM` 只导出该考勤周期提交的工卡
+    - `?month=all`（默认）导出全部；`?month=YYYY-MM` 只导出该周期的工卡，判定取并集：
+      工卡录入月份 = 该月，或卡上已登记工时落在该考勤区间（上月 21 日 ~ 本月 20 日）
     """
     month = (request.GET.get("month") or "all").strip()
     period_key = None if month in ("", "all") else month
@@ -843,9 +866,13 @@ def export_cards_pdf(request):
     period_label = (
         "全部（不按考勤周期筛选）"
         if period_key is None
-        else f"{period_key}（{start:%Y-%m-%d} ~ {end:%Y-%m-%d}）"
+        else (
+            f"{period_key}：考勤区间 {start:%Y-%m-%d} ~ {end:%Y-%m-%d}"
+            f"（含 {period_key} 月录入的工卡）"
+        )
     )
     card_count = sum(len(row["cards"]) for row in rows)
+    unmatched = sum(1 for row in rows if not row["in_name_lib"])
 
     story = [
         Paragraph("工人考勤工卡汇总", title_style),
@@ -858,8 +885,18 @@ def export_cards_pdf(request):
             ),
             head_style,
         ),
-        Spacer(1, 4),
     ]
+    if unmatched:
+        story.append(
+            Paragraph(
+                escape(
+                    f"注意：其中 {unmatched} 人的姓名不在姓名库里，"
+                    f"整理页 / 工时统计看不到他们（PDF 里姓名后标红提示）"
+                ),
+                head_style,
+            )
+        )
+    story.append(Spacer(1, 4))
 
     with tempfile.TemporaryDirectory() as tmpdir:
 
@@ -881,6 +918,8 @@ def export_cards_pdf(request):
             if row["passport_no"]:
                 chips.append("护照 " + row["passport_no"])
             headline = f"{index}. {escape(row['name'])}"
+            if not row["in_name_lib"]:
+                headline += ' <font color="#c0392b" size="8">姓名不在姓名库</font>'
             if chips:
                 headline += (
                     f' <font color="#777777" size="8">{escape(" · ".join(chips))}</font>'
@@ -971,33 +1010,42 @@ def export_cards_pdf(request):
 
             cells.append(cell)
 
-        # 两两并排成一行：一行就是两个人（格子矮的时候会自动多排几行）
-        table_data = []
-        for position in range(0, len(cells), 2):
-            pair = cells[position : position + 2]
-            if len(pair) == 1:
-                pair = pair + [""]
-            table_data.append(pair)
-
-        table = Table(
-            table_data,
-            colWidths=[column_width, column_width],
-            splitByRow=1,
-            splitInRow=0,   # 一格已保证放得进一页，跨页时整行挪到下一页，不把人拆开
-        )
-        table.setStyle(
-            TableStyle(
-                [
-                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                    ("LEFTPADDING", (0, 0), (-1, -1), cell_padding),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), cell_padding),
-                    ("TOPPADDING", (0, 0), (-1, -1), 4),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                    ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#d8dce6")),
-                ]
+        if not cells:
+            # 该周期一张工卡都没有：出个说明页，不要报 500
+            story.append(
+                Paragraph(
+                    "该考勤周期没有可导出的工卡（没人提交工卡，或工卡不属于该周期）。",
+                    note_style,
+                )
             )
-        )
-        story.append(table)
+        else:
+            # 两两并排成一行：一行就是两个人（格子矮的时候会自动多排几行）
+            table_data = []
+            for position in range(0, len(cells), 2):
+                pair = cells[position : position + 2]
+                if len(pair) == 1:
+                    pair = pair + [""]
+                table_data.append(pair)
+
+            table = Table(
+                table_data,
+                colWidths=[column_width, column_width],
+                splitByRow=1,
+                splitInRow=0,   # 一格已保证放得进一页，跨页时整行挪到下一页，不把人拆开
+            )
+            table.setStyle(
+                TableStyle(
+                    [
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                        ("LEFTPADDING", (0, 0), (-1, -1), cell_padding),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), cell_padding),
+                        ("TOPPADDING", (0, 0), (-1, -1), 4),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#d8dce6")),
+                    ]
+                )
+            )
+            story.append(table)
 
         buffer = io.BytesIO()
         document = SimpleDocTemplate(
@@ -1076,12 +1124,15 @@ def _person_hours_map():
 
 
 def _normalize_name(value):
-    """姓名归一化：去首尾与连续空白、统一大写。
+    """姓名归一化：去首尾与连续空白、统一大写，并把 `. : , ; _ - /` 也当成空格。
 
-    姓名库与工卡里的姓名可能存在前后空格、大小写差异（例如 ' ABDUL MOJID'），
-    汇总工时时按归一化后的姓名匹配，避免同一个人的工时统计不到。
+    姓名库与工卡里的姓名常见这几种差异（例如库里 `MD.SUMON`、工卡上 `MD SUMON`，
+    库里 `MD: Johurul islam`、工卡上 `MD JOHURUL ISLAM`），只比空格和大小写会把同一个人
+    当成两个人：整理页看不到他的工卡（也就没法裁剪 / 录工时），工时也统计不到。
+    经校验：姓名库 129 个名字、工卡上 100 个名字，加这条规则后都不会互相撞号。
     """
-    return re.sub(r"\s+", " ", str(value or "")).strip().upper()
+    text = re.sub(r"[.:,;_\-/]+", " ", str(value or ""))
+    return re.sub(r"\s+", " ", text).strip().upper()
 
 
 def _period_key(day):
