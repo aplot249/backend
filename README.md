@@ -95,6 +95,21 @@ python manage.py runserver
 > 150 人 / 103 张工卡时约 103 页、15 MB、生成 11 秒左右；工卡再多会更久，
 > 页面按钮点了会显示「生成中...」。若服务器（gunicorn/uwsgi）超时时间 < 60 秒，建议调大。
 
+## 首页开关：填报表单 / 工时查询（数据库变量控制）
+
+后台 **系统开关**（`formapp.SystemSetting`，全局只有一条记录，pk=1）用数据库变量控制首页展示哪个页面：
+
+| `form_enabled` | 首页 `/` | `/check/` | `POST /api/submit/` |
+|---|---|---|---|
+| `True`（默认） | 展示 `form.html`（工卡填报） | 正常访问 | 正常提交 |
+| `False` | 改为展示 `check.html`（只能查工时） | 正常访问 | **403 拒绝**（防止绕过页面直接调接口） |
+
+- 后台位置：管理后台 → `FORMAPP` → **系统开关** → 勾/取消「展示填报表单」→ 保存，立即生效，不用重启
+- 关闭填报时，查询页会显示一行 `Work card submission is closed. You can only check your work hours here.`，
+  并隐藏「← Back to the submission form」返回链接（避免点了又回到自己）
+- 数据表随迁移 `formapp/migrations/0007_systemsetting.py` 建立，部署需执行 `python manage.py migrate`
+- 代码入口：`SystemSetting.get_setting()`；首页渲染在 `form_view()` 里按开关二选一
+
 ## 填报表单页（`/`，templates/form.html）
 
 一屏展示，**页面本身不出现滚动条**（`body { height: 100dvh; overflow: hidden }`）：

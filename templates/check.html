@@ -42,6 +42,7 @@
         .head { flex: none; margin-bottom: 10px; }
         .head h1 { font-size: 18px; color: #333; line-height: 1.25; }
         .head .subtitle { font-size: 12px; color: #999; margin-top: 2px; }
+        .head .closed { font-size: 11px; color: #2f6fb2; margin-top: 3px; }
         .head .back {
             display: inline-block;
             font-size: 12px;
@@ -286,7 +287,12 @@
         <div class="head">
             <h1>My Work Hours</h1>
             <p class="subtitle">Enter your name + employee No. (or passport No.) to check your work hours</p>
+            {% if not form_enabled %}
+            <p class="closed">Work card submission is closed. You can only check your work hours here.</p>
+            {% endif %}
+            {% if form_enabled %}
             <a class="back" href="/">&larr; Back to the submission form</a>
+            {% endif %}
         </div>
 
         <div class="search">

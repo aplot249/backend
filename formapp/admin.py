@@ -3,7 +3,7 @@ from import_export.admin import ImportExportMixin
 from django.contrib import admin
 from django.utils.html import format_html
 
-from .models import Name, Project, Submission, WorkHour
+from .models import Name, Project, Submission, SystemSetting, WorkHour
 
 
 class NameResource(resources.ModelResource):
@@ -106,6 +106,25 @@ class SubmissionAdmin(ImportExportMixin, admin.ModelAdmin):
             )
         except ValueError:
             return "未上传"
+
+
+@admin.register(SystemSetting)
+class SystemSettingAdmin(admin.ModelAdmin):
+    """首页展示哪个页面的开关：只保留一条记录，不允许新增 / 删除。"""
+
+    list_display = ("form_enabled_label", "updated_at")
+    fields = ("form_enabled",)
+    readonly_fields = ("updated_at",)
+
+    def has_add_permission(self, request):
+        return not SystemSetting.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description="首页状态")
+    def form_enabled_label(self, obj):
+        return "展示工卡填报表单（/ = form.html）" if obj.form_enabled else "展示工时查询页（/ = check.html）"
 
 
 @admin.register(WorkHour)

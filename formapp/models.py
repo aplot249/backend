@@ -97,6 +97,34 @@ class Submission(models.Model):
         super().save(*args, **kwargs)
 
 
+class SystemSetting(models.Model):
+    """系统开关（全局只有一条记录，pk 固定为 1）。"""
+
+    form_enabled = models.BooleanField(
+        "展示填报表单",
+        default=True,
+        help_text="勾选：首页 / 展示工卡填报表单；取消勾选：首页改为展示工时查询页（暂停填报）",
+    )
+    updated_at = models.DateTimeField("更新时间", auto_now=True)
+
+    class Meta:
+        verbose_name = "系统开关"
+        verbose_name_plural = "系统开关"
+
+    def __str__(self):
+        return f"系统开关（{'填报中' if self.form_enabled else '仅查询'}）"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1  # 始终只有一条记录
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get_setting(cls):
+        """取系统开关（没有就按默认「展示表单」创建一条）。"""
+        setting, _ = cls.objects.get_or_create(pk=1)
+        return setting
+
+
 class WorkHour(models.Model):
     """工天数据：某工人在某天的工作小时数（从工卡图片人工录入）。"""
 

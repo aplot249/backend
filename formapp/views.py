@@ -22,7 +22,7 @@ from PIL import Image, UnidentifiedImageError
 
 from django.db.models import Count, Sum
 
-from .models import Name, Project, Submission, WorkHour
+from .models import Name, Project, Submission, SystemSetting, WorkHour
 
 # 工卡图片限制
 MAX_CARD_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB
@@ -53,13 +53,24 @@ PDF_IMAGE_JPEG_QUALITY = 62
 
 
 def form_view(request):
-    """渲染表单页面。"""
-    return render(request, "form.html")
+    """首页：按系统开关展示工卡填报表单，或改为展示工时查询页。
+
+    开关来自数据库（后台「系统开关」），`form_enabled=True` 展示 form.html，
+    关闭时首页直接展示 check.html（暂停填报，只允许查询）。
+    """
+    if SystemSetting.get_setting().form_enabled:
+        return render(request, "form.html")
+    return render(request, "check.html", {"form_enabled": False})
 
 
 def check_view(request):
-    """工时查询页：工人输入「姓名 + 工号/护照号」核对身份后查询自己的工时（只读）。"""
-    return render(request, "check.html")
+    """工时查询页：工人输入「姓名 + 工号/护照号」核对身份后查询自己的工时（只读）。
+
+    /check/ 始终可访问；首页 / 是否展示它由「系统开关」决定。
+    """
+    return render(
+        request, "check.html", {"form_enabled": SystemSetting.get_setting().form_enabled}
+    )
 
 
 def _normalize_code(value):
@@ -395,7 +406,20 @@ def _validate_card_image(card_image):
 @csrf_exempt
 @require_POST
 def submit_form(request):
-    """接收并保存表单提交（姓名 + 项目 + 工卡图片，工作内容选填）。"""
+    """接收并保存表单提交（姓名 + 项目 + 工卡图片，工作内容选填）。
+
+    后台「系统开关」关闭填报表单时，即使绕过页面直接调接口也会被拒绝。
+    """
+    if not SystemSetting.get_setting().form_enabled:
+        return JsonResponse(
+            {
+                "ok": False,
+                "message": "Work card submission is closed. "
+                "Please use the work hours check page.",
+            },
+            status=403,
+        )
+
     try:
         name, project, remark, card_image = _parse_payload(request)
     except ValueError as exc:
