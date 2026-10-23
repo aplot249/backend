@@ -31,6 +31,16 @@ urlpatterns = [
         views.save_work_hours,
         name="save-work-hours",
     ),
+    path(
+        "api/submission/<int:submission_id>/total-hours/",
+        views.person_total_hours,
+        name="person-total-hours",
+    ),
+    path(
+        "api/submission/<int:submission_id>/delete/",
+        views.delete_submission,
+        name="delete-submission",
+    ),
 ]
 
 if settings.DEBUG:

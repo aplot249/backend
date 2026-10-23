@@ -223,6 +223,39 @@
             background: #fdf1e3;
             color: #d35400;
         }
+        .sub-del {
+            margin-left: auto;
+            border: 1px solid #f3c9c4;
+            background: #fff;
+            color: #d0453b;
+            border-radius: 6px;
+            padding: 3px 10px;
+            font-size: 12px;
+            cursor: pointer;
+            font-family: inherit;
+            white-space: nowrap;
+        }
+        .sub-del:hover { background: #d0453b; border-color: #d0453b; color: #fff; }
+        .sub-del:disabled { opacity: 0.6; cursor: not-allowed; }
+        .to-top {
+            position: fixed;
+            right: 24px;
+            bottom: 28px;
+            z-index: 60;
+            display: none;
+            align-items: center;
+            border: none;
+            border-radius: 999px;
+            padding: 10px 18px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            font-size: 13px;
+            font-family: inherit;
+            box-shadow: 0 6px 18px rgba(102, 126, 234, 0.45);
+            cursor: pointer;
+        }
+        .to-top.show { display: inline-flex; }
+        .to-top:hover { filter: brightness(1.08); }
         .sub.latest .badge {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: #fff;
@@ -637,7 +670,7 @@
                 <span class="stat"><b>{{ missing_count }}</b>未提交</span>
                 <span class="stat"><b>{{ duplicate_count }}</b>多次提交</span>
                 <span class="stat"><b>{{ multi_project_count }}</b>跨多项目</span>
-                <span class="stat"><b>{{ total_hours_label }}</b>累计工时</span>
+                <span class="stat"><b id="totalHoursValue" data-value="{{ total_hours }}">{{ total_hours_label }}</b>累计工时</span>
             </div>
 
             <div class="filter-bar" id="filterBar">
@@ -669,7 +702,8 @@
                  data-status="{% if row.count %}done{% else %}todo{% endif %}"
                  data-multi="{% if row.project_count > 1 %}1{% else %}0{% endif %}"
                  data-name="{{ row.name }}"
-                 data-emp="{{ row.employee_no }}">
+                 data-emp="{{ row.employee_no }}"
+                 data-total-hours="{{ row.total_hours }}">
             <div class="person-head">
                 <span class="avatar">{{ row.name|slice:":1" }}</span>
                 <div class="who">
@@ -681,7 +715,7 @@
                     <div class="meta">
                         {% if row.count %}
                             已提交 {{ row.count }} 次（{{ row.project_count }} 个项目）·
-                            累计工时 {{ row.total_hours_label }} 小时 ·
+                            累计工时 <span class="js-total-hours">{{ row.total_hours_label }}</span> 小时 ·
                             最近 {{ row.latest.created_at|date:"Y-m-d H:i" }} · {{ row.latest.project }}
                         {% else %}
                             提交记录中没有此人
@@ -692,7 +726,7 @@
                     <span class="tag tag-done">已提交</span>
                     {% if row.count > 1 %}<span class="tag tag-multi">多次提交</span>{% endif %}
                     {% if row.project_count > 1 %}<span class="tag tag-cross">跨 {{ row.project_count }} 个项目</span>{% endif %}
-                    <span class="tag tag-hours">总工时 {{ row.total_hours_label }} 小时</span>
+                    <span class="tag tag-hours">总工时 <span class="js-total-hours">{{ row.total_hours_label }}</span> 小时</span>
                 {% else %}
                     <span class="tag tag-none">未提交</span>
                 {% endif %}
@@ -718,6 +752,12 @@
                                     <span class="badge badge-hist" title="只有最新提交的工卡可以录入工天数据">历史工卡·只读</span>
                                     {% endif %}
                                     <span class="time">{{ submission.created_at|date:"Y-m-d H:i:s" }}</span>
+                                    <button type="button" class="sub-del js-del-card"
+                                            title="删除这张工卡记录（含工卡图片与该卡上的工时）"
+                                            data-id="{{ submission.pk }}"
+                                            data-who="{{ submission.name }}"
+                                            data-project="{{ block.project }}"
+                                            data-hours="{{ submission.hours_count|default:0 }}">删除</button>
                                 </div>
                                 <div class="kv">
                                     <span class="k">工作内容</span>
@@ -757,6 +797,8 @@
 
         <a class="back" href="/admin/">返回后台管理</a>
     </div>
+
+    <button type="button" class="to-top" id="toTop" title="返回顶部">↑ 顶部</button>
 
     <div class="modal" id="editorModal">
         <div class="modal-mask" id="editorMask"></div>
@@ -869,6 +911,9 @@
             var hoursLock = document.getElementById("hoursLock");
             // 只有「人 + 项目」最新提交的工卡可录入工时，历史工卡只读
             var hoursEditable = true;
+            // 当前弹窗对应的工人卡片 / 本次弹窗是否保存过工天
+            var currentCard = null;
+            var hoursSaved = false;
 
             var viewCtx = view.getContext("2d");
             var tmp = document.createElement("canvas");
@@ -975,6 +1020,8 @@
 
             function openEditor(btn) {
                 currentId = btn.getAttribute("data-id");
+                currentCard = btn.closest("section.person");
+                hoursSaved = false;
                 who.textContent = btn.getAttribute("data-who") || "";
                 whoFields.textContent = workerFields(btn);
                 msg.textContent = "";
@@ -1013,11 +1060,47 @@
             }
 
             function closeEditor() {
+                // 弹窗里保存过工天时，关闭前同步刷新页面上该工人的总工时
+                if (hoursSaved && currentId && currentCard) {
+                    refreshPersonHours(currentId, currentCard);
+                }
+                hoursSaved = false;
+                currentCard = null;
                 modal.classList.remove("open");
                 baseImg = null;
                 currentId = null;
                 saveBtn.disabled = false;
                 saveBtn.textContent = "保存并替换原图";
+            }
+
+            function fmtHours(value) {
+                return (Math.round(value * 100) / 100).toFixed(2).replace(/\.?0+$/, "");
+            }
+
+            /* 保存工天后刷新页面上该工人的「总工时」，并同步顶部累计工时 */
+            function refreshPersonHours(id, card) {
+                fetch("/api/submission/" + id + "/total-hours/", {
+                    headers: { "X-Requested-With": "XMLHttpRequest" }
+                })
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        if (!data || !data.ok) return;
+                        var total = Number(data.total_hours || 0);
+                        var old = Number(card.getAttribute("data-total-hours") || 0);
+                        card.querySelectorAll(".js-total-hours").forEach(function (el) {
+                            el.textContent = data.total_hours_label;
+                        });
+                        card.setAttribute("data-total-hours", String(total));
+
+                        var top = document.getElementById("totalHoursValue");
+                        if (top) {
+                            var topNew =
+                                Number(top.getAttribute("data-value") || 0) + (total - old);
+                            top.setAttribute("data-value", String(topNew));
+                            top.textContent = fmtHours(topNew);
+                        }
+                    })
+                    .catch(function () {});
             }
 
             function selectAll() {
@@ -1281,6 +1364,9 @@
                         }
                         hoursData = entries;
                         renderCalendar();
+                        hoursSaved = true;
+                        // 同步刷新页面上该工人的总工时（不刷新整个页面）
+                        if (currentCard) refreshPersonHours(currentId, currentCard);
                         hoursMsg.textContent = "已保存：" + data.count + " 天，合计 "
                             + data.total_hours + " 小时";
                         hoursMsg.className = "msg success";
@@ -1463,6 +1549,66 @@
                     apply(btn.getAttribute("data-filter"));
                 });
             });
+        })();
+    </script>
+
+    <script>
+        /* 删除工卡记录 + 返回顶部 */
+        (function () {
+            function csrfToken() {
+                var m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+                return m ? decodeURIComponent(m[1]) : "";
+            }
+
+            document.querySelectorAll(".js-del-card").forEach(function (btn) {
+                btn.addEventListener("click", function () {
+                    var id = btn.getAttribute("data-id");
+                    var who = btn.getAttribute("data-who") || "";
+                    var project = btn.getAttribute("data-project") || "";
+                    var hours = parseInt(btn.getAttribute("data-hours") || "0", 10);
+                    var tip = "确定删除 " + who + " 在「" + project + "」的这张工卡记录吗？\n"
+                        + "将同时删除：工卡图片"
+                        + (hours ? "、" + hours + " 条工时记录" : "")
+                        + "，删除后不可恢复。";
+                    if (!window.confirm(tip)) return;
+
+                    btn.disabled = true;
+                    btn.textContent = "删除中...";
+                    fetch("/api/submission/" + id + "/delete/", {
+                        method: "POST",
+                        headers: {
+                            "X-CSRFToken": csrfToken(),
+                            "X-Requested-With": "XMLHttpRequest"
+                        }
+                    })
+                        .then(function (r) { return r.json(); })
+                        .then(function (data) {
+                            if (!data || !data.ok) {
+                                window.alert((data && data.message) || "删除失败");
+                                btn.disabled = false;
+                                btn.textContent = "删除";
+                                return;
+                            }
+                            window.location.reload();
+                        })
+                        .catch(function () {
+                            window.alert("网络错误，请重试");
+                            btn.disabled = false;
+                            btn.textContent = "删除";
+                        });
+                });
+            });
+
+            var toTop = document.getElementById("toTop");
+            if (toTop) {
+                window.addEventListener("scroll", function () {
+                    if (window.scrollY > 300) toTop.classList.add("show");
+                    else toTop.classList.remove("show");
+                });
+                toTop.addEventListener("click", function () {
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                });
+            }
         })();
     </script>
 </body>

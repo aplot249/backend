@@ -17,7 +17,7 @@ from openpyxl import load_workbook
 from openpyxl.styles import Border, Side
 from PIL import Image, UnidentifiedImageError
 
-from django.db.models import Sum
+from django.db.models import Count, Sum
 
 from .models import Name, Project, Submission, WorkHour
 
@@ -267,6 +267,60 @@ def save_work_hours(request, submission_id):
     )
 
 
+@staff_member_required
+@require_GET
+def person_total_hours(request, submission_id):
+    """某张工卡所属工人的累计工时，口径与整理页一致（归一化姓名 + 只取最新工卡）。
+
+    弹窗里保存工天后用它刷新页面上该工人的「总工时」，无需刷新整个页面。
+    """
+    submission = get_object_or_404(Submission, pk=submission_id)
+    total = _person_hours_map().get(_normalize_name(submission.name), Decimal("0"))
+    return JsonResponse(
+        {
+            "ok": True,
+            "name": submission.name,
+            "total_hours": float(total),
+            "total_hours_label": _format_hours(total),
+        }
+    )
+
+
+@staff_member_required
+@require_POST
+def delete_submission(request, submission_id):
+    """删除某人在某项目的工卡记录（需后台登录）。
+
+    同时删除：工卡图片文件、该工卡关联的所有工时记录（外键级联删除）。
+    """
+    submission = get_object_or_404(Submission, pk=submission_id)
+    who = submission.name
+    project = submission.project or "（未填项目）"
+    hours_count = submission.work_hours.count()
+    image_name = submission.card_image.name if submission.card_image else ""
+
+    submission.delete()  # WorkHour 外键为 CASCADE，关联工时一并删除
+
+    # Django 删除记录时不会删除文件，这里手动清理工卡图片
+    deleted_image = False
+    if image_name:
+        try:
+            default_storage.delete(image_name)
+            deleted_image = True
+        except Exception:
+            pass
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "message": f"已删除 {who} 在「{project}」的工卡记录"
+            + (f"（含 {hours_count} 条工时）" if hours_count else ""),
+            "deleted_hours": hours_count,
+            "deleted_image": deleted_image,
+        }
+    )
+
+
 def _format_hours(value):
     """工时显示：最多两位小数，去掉多余的 0（21.50 -> 21.5，21.00 -> 21）。"""
     if value is None:
@@ -301,6 +355,16 @@ def _latest_submission_map():
 def _latest_submission_ids():
     """只有这些工卡允许录入 / 保存工天数据，导出与合计也只取这些工卡关联的工时。"""
     return set(_latest_submission_map().values())
+
+
+def _person_hours_map():
+    """每个工人的累计工时：归一化姓名 -> 合计（跨项目相加，只取最新工卡关联的数据）。"""
+    return {
+        _normalize_name(item["name"]): item["total"] or Decimal("0")
+        for item in WorkHour.objects.filter(submission_id__in=_latest_submission_ids())
+        .values("name")
+        .annotate(total=Sum("hours"))
+    }
 
 
 def _normalize_name(value):
@@ -339,20 +403,21 @@ def summary_view(request):
     """数据整理页：以姓名库为基准，按「人 + 项目」分组展示提交情况（最新提交置顶）。"""
     grouped = {}
     latest_ids = _latest_submission_ids()
+    # 每张工卡上已录入的工时条数，供删除前提示
+    hours_count_map = {
+        item["submission_id"]: item["c"]
+        for item in WorkHour.objects.values("submission_id").annotate(c=Count("id"))
+    }
     for submission in Submission.objects.order_by("-created_at"):
         submission.period_month = _payroll_month(submission.created_at)
         # 只有最新工卡可录入工时，历史工卡只读
         submission.is_latest_card = submission.pk in latest_ids
+        submission.hours_count = hours_count_map.get(submission.pk, 0)
         # 按归一化姓名分组，避免姓名库与工卡姓名空格 / 大小写不一致导致分组不到
         grouped.setdefault(_normalize_name(submission.name), []).append(submission)
 
     # 每个工人的累计工时（跨项目相加，只取最新工卡关联的数据）
-    hours_map = {
-        _normalize_name(item["name"]): item["total"] or Decimal("0")
-        for item in WorkHour.objects.filter(submission_id__in=latest_ids)
-        .values("name")
-        .annotate(total=Sum("hours"))
-    }
+    hours_map = _person_hours_map()
 
     rows = []
     for person in Name.objects.all().only("name", "employee_no", "passport_no"):

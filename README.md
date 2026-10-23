@@ -106,6 +106,10 @@ python import_attendance.py --file 路径.xlsx
 - 统计下方是一排筛选按钮：**全部 / 已提交 / 未提交 / 跨多项目**（按钮上带对应人数），
   点击后即时过滤下方人员卡片，右上角显示「显示 N 人」，没有符合条件的人时给出提示；
   纯前端过滤，不刷新页面，筛选状态不影响导出
+- 每张工卡右侧有「删除」按钮：删除该「某人 + 某项目」的工卡记录，同时删除
+  **工卡图片文件**和该卡上已录入的**工时记录**（外键级联），删除前弹窗会提示工时条数，
+  删除成功后刷新页面；接口 `POST /api/submission/<id>/delete/`（需后台登录，GET 返回 405）
+- 页面右下角有「↑ 顶部」按钮，向下滚动超过 300px 后出现，点击平滑返回顶部
 - **点筛选按钮的同时会把筛选结果的「姓名 + 空格 + 工号」复制到剪贴板**，一行一个人，
   可直接粘贴进 Excel / 微信；提示文案会显示「已复制到剪贴板」，
   https / localhost 走 `navigator.clipboard`，http 环境自动退回 `execCommand`
@@ -137,7 +141,9 @@ python import_attendance.py --file 路径.xlsx
     列表里历史工卡带「历史工卡·只读」标记，弹窗内有橙色提示条，日期输入框与「保存工天数据」按钮均禁用，
     后端 `save` 接口也会拦截（返回 400）
   - 数据统一挂在最新工卡上：历史工卡上的工时会归并到最新工卡（迁移 `0006` 已处理存量数据）
-  - 接口：`GET /api/submission/<id>/work-hours/`、`POST /api/submission/<id>/work-hours/save/`
+  - 接口：`GET /api/submission/<id>/work-hours/`、`POST /api/submission/<id>/work-hours/save/`、
+    `GET /api/submission/<id>/total-hours/`（保存后用于同步页面上的总工时，无需刷新页面）
+  - 弹窗里保存工天后，页面上该工人的「累计工时 / 总工时」以及顶部「累计工时」会立即同步更新
   - 后台「工时记录」支持按日期/项目筛选、搜索、Excel 导出
 
 ## 姓名空格处理
