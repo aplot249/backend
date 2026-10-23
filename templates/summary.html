@@ -667,7 +667,9 @@
         {% for row in rows %}
         <section class="person {% if row.count %}done{% else %}todo{% endif %}"
                  data-status="{% if row.count %}done{% else %}todo{% endif %}"
-                 data-multi="{% if row.project_count > 1 %}1{% else %}0{% endif %}">
+                 data-multi="{% if row.project_count > 1 %}1{% else %}0{% endif %}"
+                 data-name="{{ row.name }}"
+                 data-emp="{{ row.employee_no }}">
             <div class="person-head">
                 <span class="avatar">{{ row.name|slice:":1" }}</span>
                 <div class="who">
@@ -1385,8 +1387,48 @@
             var counter = document.getElementById("filterCount");
             var emptyTip = document.getElementById("filterEmpty");
 
+            /* 复制到剪贴板：https / localhost 用 clipboard API，http 环境退回 execCommand */
+            function copyText(text) {
+                if (navigator.clipboard && window.isSecureContext) {
+                    return navigator.clipboard.writeText(text);
+                }
+                return new Promise(function (resolve, reject) {
+                    var area = document.createElement("textarea");
+                    area.value = text;
+                    area.setAttribute("readonly", "");
+                    area.style.position = "fixed";
+                    area.style.top = "-1000px";
+                    area.style.opacity = "0";
+                    document.body.appendChild(area);
+                    area.select();
+                    area.setSelectionRange(0, text.length);
+                    var ok = false;
+                    try {
+                        ok = document.execCommand("copy");
+                    } catch (err) {
+                        ok = false;
+                    }
+                    document.body.removeChild(area);
+                    if (ok) resolve();
+                    else reject(new Error("copy failed"));
+                });
+            }
+
+            function buildList(visibleCards) {
+                return visibleCards.map(function (card) {
+                    var name = (card.getAttribute("data-name") || "").trim();
+                    var emp = (card.getAttribute("data-emp") || "").trim();
+                    return emp ? name + " " + emp : name;
+                }).join("\r\n");
+            }
+
+            function setTip(text) {
+                counter.textContent = text;
+            }
+
             function apply(filter) {
                 var shown = 0;
+                var visible = [];
                 cards.forEach(function (card) {
                     var match =
                         filter === "all"
@@ -1394,14 +1436,26 @@
                         || (filter === "todo" && card.getAttribute("data-status") === "todo")
                         || (filter === "multi" && card.getAttribute("data-multi") === "1");
                     card.style.display = match ? "" : "none";
-                    if (match) shown++;
+                    if (match) {
+                        shown++;
+                        visible.push(card);
+                    }
                 });
                 buttons.forEach(function (btn) {
                     if (btn.getAttribute("data-filter") === filter) btn.classList.add("active");
                     else btn.classList.remove("active");
                 });
-                counter.textContent = filter === "all" ? "" : "显示 " + shown + " 人";
                 if (emptyTip) emptyTip.hidden = shown !== 0;
+                setTip("显示 " + shown + " 人");
+
+                if (!shown) return;
+                copyText(buildList(visible))
+                    .then(function () {
+                        setTip("显示 " + shown + " 人 · 姓名/工号已复制到剪贴板");
+                    })
+                    .catch(function () {
+                        setTip("显示 " + shown + " 人 · 复制失败，请允许浏览器访问剪贴板");
+                    });
             }
 
             buttons.forEach(function (btn) {
