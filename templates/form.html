@@ -51,6 +51,22 @@
         }
         .card .check-link:hover { text-decoration: underline; }
 
+        /* ---------- 管理员预览提示（工人端已关闭填报） ---------- */
+        .admin-bar {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex: none;
+            background: #fff7e6;
+            border: 1px solid #ffe0a3;
+            color: #a06300;
+            border-radius: 8px;
+            padding: 7px 10px;
+            font-size: 12px;
+            line-height: 1.45;
+        }
+        .admin-bar b { color: #8a5300; }
+
         /* ---------- 填报关闭时的友好提示 ---------- */
         .closed {
             flex: 1;
@@ -349,6 +365,13 @@
             <p class="subtitle">当前填报阶段已结束</p>
             {% endif %}
         </div>
+
+        {% if admin_bypass %}
+        <div class="admin-bar">
+            <b>管理员预览</b>：工人端当前已关闭填报（系统开关「展示填报表单」= 关闭），
+            你以管理员身份仍可正常填报 / 测试。
+        </div>
+        {% endif %}
 
         {% if not form_enabled %}
         <div class="closed">

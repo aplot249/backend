@@ -108,6 +108,11 @@ python manage.py runserver
 
 - **两个页面的路由始终独立**：`/` 是填报页、`/check/` 是查询页，关闭填报不会把 `/` 变成查询页，
   只是在 `/` 上给出友好提示（中文 + 英文双行），并提供「进入查询系统 →」按钮跳到 `/check/`
+- **后台管理员不受开关限制**：开关关闭时，只要浏览器里登录着后台账号
+  （`is_staff` 或超级用户），`/` 照样显示完整填报表单，页面顶部多一条橙色提示
+  「管理员预览：工人端当前已关闭填报」；`POST /api/submit/` 也同样放行，
+  方便自己补录 / 测试。工人（未登录）和只登录了前台的普通账号仍然被拦
+  （判断见 `views._is_backend_admin()`）
 - 后台位置：管理后台 → `FORMAPP` → **系统开关** → 勾/取消「展示填报表单」→ 保存，立即生效，不用重启
 - 关闭填报时：填报页隐藏表单与顶部「Check my work hours →」小链接（只留居中提示），
   查询页显示 `Work card submission is closed. You can only check your work hours here.`

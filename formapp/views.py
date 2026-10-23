@@ -52,15 +52,33 @@ PDF_IMAGE_MAX_WIDTH = 1100       # 工卡图片像素宽度上限，控制 PDF �
 PDF_IMAGE_JPEG_QUALITY = 62
 
 
+def _is_backend_admin(user):
+    """后台管理员（能进 /admin 的人）：staff 或超级用户，且已登录。"""
+    return bool(
+        user and user.is_authenticated and (user.is_staff or user.is_superuser)
+    )
+
+
 def form_view(request):
     """工卡填报表单页（`/`）。
 
     两个页面路由各自独立：`/` 是填报页、`/check/` 是查询页。
     后台「系统开关」关闭填报时，`/` 仍然留在填报页上，只是把表单换成
     「当前填报阶段已结束，进入查询系统」的友好提示 + 去查询页的入口。
+
+    例外：**后台管理员登录着的时候不受开关限制**，照样看到完整填报表单
+    （方便自己补录 / 测试），页面顶部会提示「工人端当前已关闭填报」。
     """
+    setting_on = SystemSetting.get_setting().form_enabled
+    form_enabled = setting_on or _is_backend_admin(request.user)
     return render(
-        request, "form.html", {"form_enabled": SystemSetting.get_setting().form_enabled}
+        request,
+        "form.html",
+        {
+            "form_enabled": form_enabled,
+            # 开关关着、只是因为管理员身份才放行
+            "admin_bypass": form_enabled and not setting_on,
+        },
     )
 
 
@@ -409,9 +427,12 @@ def _validate_card_image(card_image):
 def submit_form(request):
     """接收并保存表单提交（姓名 + 项目 + 工卡图片，工作内容选填）。
 
-    后台「系统开关」关闭填报表单时，即使绕过页面直接调接口也会被拒绝。
+    后台「系统开关」关闭填报表单时，即使绕过页面直接调接口也会被拒绝；
+    后台管理员登录着时同样不受限制（与表单页面保持一致）。
     """
-    if not SystemSetting.get_setting().form_enabled:
+    if not SystemSetting.get_setting().form_enabled and not _is_backend_admin(
+        request.user
+    ):
         return JsonResponse(
             {
                 "ok": False,
