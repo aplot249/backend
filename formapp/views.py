@@ -1028,16 +1028,17 @@ def summary_view(request):
         # 项目列按该项目最近一次提交时间倒序排列
         blocks.sort(key=lambda block: block["latest"].created_at, reverse=True)
 
+        total_hours = hours_map.get(person_key, Decimal("0"))
         rows.append(
             {
                 "id": person.pk,
                 "name": person.name,
                 "employee_no": person.employee_no,
                 "passport_no": person.passport_no,
-                "total_hours": hours_map.get(person_key, Decimal("0")),
-                "total_hours_label": _format_hours(
-                    hours_map.get(person_key, Decimal("0"))
-                ),
+                "total_hours": total_hours,
+                "total_hours_label": _format_hours(total_hours),
+                # 已提交工卡、但工时还没录（合计为 0）
+                "is_zero": bool(submissions) and total_hours == 0,
                 "count": len(submissions),
                 "projects": blocks,
                 "project_count": len(blocks),
@@ -1056,6 +1057,7 @@ def summary_view(request):
         "missing_count": total - submitted_count,
         "duplicate_count": sum(1 for row in rows if row["count"] > 1),
         "multi_project_count": sum(1 for row in rows if row["project_count"] > 1),
+        "zero_hours_count": sum(1 for row in rows if row["is_zero"]),
         "total_hours": sum(row["total_hours"] for row in rows),
         "total_hours_label": _format_hours(sum(row["total_hours"] for row in rows)),
         "periods": _export_periods(),

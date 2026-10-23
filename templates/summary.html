@@ -695,6 +695,7 @@
                 <button type="button" class="filter-btn" data-filter="done">已提交 <b>{{ submitted_count }}</b></button>
                 <button type="button" class="filter-btn" data-filter="todo">未提交 <b>{{ missing_count }}</b></button>
                 <button type="button" class="filter-btn" data-filter="multi">跨多项目 <b>{{ multi_project_count }}</b></button>
+                <button type="button" class="filter-btn" data-filter="zero" title="已提交工卡，但工时还没录入（合计为 0）">已提交·工时0 <b>{{ zero_hours_count }}</b></button>
                 <span class="filter-count" id="filterCount"></span>
             </div>
 
@@ -729,6 +730,7 @@
         <section class="person {% if row.count %}done{% else %}todo{% endif %}"
                  data-status="{% if row.count %}done{% else %}todo{% endif %}"
                  data-multi="{% if row.project_count > 1 %}1{% else %}0{% endif %}"
+                 data-zero="{% if row.is_zero %}1{% else %}0{% endif %}"
                  data-name="{{ row.name }}"
                  data-emp="{{ row.employee_no }}"
                  data-total-hours="{{ row.total_hours }}">
@@ -1553,7 +1555,8 @@
                         filter === "all"
                         || (filter === "done" && card.getAttribute("data-status") === "done")
                         || (filter === "todo" && card.getAttribute("data-status") === "todo")
-                        || (filter === "multi" && card.getAttribute("data-multi") === "1");
+                        || (filter === "multi" && card.getAttribute("data-multi") === "1")
+                        || (filter === "zero" && card.getAttribute("data-zero") === "1");
                     card.style.display = match ? "" : "none";
                     if (match) {
                         shown++;
