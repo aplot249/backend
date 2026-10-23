@@ -49,6 +49,106 @@ def form_view(request):
     return render(request, "form.html")
 
 
+def check_view(request):
+    """工时查询页：工人按姓名查询自己已录入的工时（只读，不能编辑）。"""
+    return render(request, "check.html")
+
+
+@require_GET
+def check_hours(request):
+    """按姓名查询整理后的工时数据。
+
+    口径与整理页一致：只取每个项目「最新提交」的工卡上已录入的工时，
+    历史提交的工卡不展示；只返回工时，不含任何可编辑 / 删除的入口。
+    """
+    name = (request.GET.get("q") or "").strip()
+    if not name:
+        return JsonResponse({"ok": False, "message": "Please enter your name"}, status=400)
+
+    key = _normalize_name(name)
+    # 每个「人 + 项目」最新工卡，筛出这个人的
+    pairs = [
+        (project, submission_id)
+        for (person, project), submission_id in _latest_submission_map().items()
+        if _normalize_name(person) == key
+    ]
+
+    if not pairs:
+        return JsonResponse(
+            {
+                "ok": True,
+                "found": False,
+                "name": name,
+                "message": "No submitted record found for this name. "
+                "Please make sure the spelling matches your work card.",
+            }
+        )
+
+    submissions = {
+        s.pk: s for s in Submission.objects.filter(pk__in=[sid for _, sid in pairs])
+    }
+    pairs = [pair for pair in pairs if pair[1] in submissions]
+    # 按该项目最近一次提交时间倒序
+    pairs.sort(key=lambda item: submissions[item[1]].created_at, reverse=True)
+
+    hours_by_submission = {}
+    for row in WorkHour.objects.filter(
+        submission_id__in=[sid for _, sid in pairs]
+    ).order_by("date"):
+        if row.hours > 0:  # 只展示有工时的日期
+            hours_by_submission.setdefault(row.submission_id, []).append(row)
+
+    person = next(
+        (
+            p
+            for p in Name.objects.all().only("name", "employee_no")
+            if _normalize_name(p.name) == key
+        ),
+        None,
+    )
+
+    total = Decimal("0")
+    projects = []
+    for project, submission_id in pairs:
+        submission = submissions.get(submission_id)
+        rows = hours_by_submission.get(submission_id, [])
+        sub_total = sum((row.hours for row in rows), Decimal("0"))
+        total += sub_total
+        projects.append(
+            {
+                "project": project,
+                "is_vacation": project == VACATION_PROJECT,
+                "submitted_at": submission.created_at.strftime("%Y-%m-%d %H:%M")
+                if submission
+                else "",
+                "total_hours": float(sub_total),
+                "total_hours_label": _format_hours(sub_total),
+                "worked_days": len(rows),
+                "days": [
+                    {
+                        "date": row.date.isoformat(),
+                        "hours": float(row.hours),
+                        "hours_label": _format_hours(row.hours),
+                    }
+                    for row in rows
+                ],
+            }
+        )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "found": True,
+            "name": person.name if person else submissions[pairs[0][1]].name,
+            "employee_no": person.employee_no if person else "",
+            "project_count": len(projects),
+            "total_hours": float(total),
+            "total_hours_label": _format_hours(total),
+            "projects": projects,
+        }
+    )
+
+
 @require_GET
 def search_name(request):
     """按关键字模糊搜索姓名，返回匹配结果。"""

@@ -14,6 +14,8 @@ urlpatterns = [
     path("api/search-project/", views.search_project, name="search-project"),
     path("api/list-project/", views.list_project, name="list-project"),
     path("api/submit/", views.submit_form, name="submit-form"),
+    path("check/", views.check_view, name="check"),
+    path("api/check-hours/", views.check_hours, name="check-hours"),
     path("summary/", views.summary_view, name="summary"),
     path("summary/export/", views.export_work_hours_excel, name="export-work-hours"),
     path(

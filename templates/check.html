@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>My Work Hours - Check</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html, body { height: 100%; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            height: 100dvh;          /* 手机地址栏收放时高度自适应 */
+            overflow: hidden;        /* 页面本身不出现滚动条 */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+            -webkit-text-size-adjust: 100%;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+
+        /* ---------- 卡片：占满可视高度，内部滚动，绝不外溢 ---------- */
+        .card {
+            background: #fff;
+            width: 100%;
+            max-width: 460px;
+            height: 100%;
+            max-height: 100%;
+            border-radius: 14px;
+            padding: 14px;
+            box-shadow: 0 18px 50px rgba(0, 0, 0, 0.22);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .head { flex: none; margin-bottom: 10px; }
+        .head h1 { font-size: 18px; color: #333; line-height: 1.25; }
+        .head .subtitle { font-size: 12px; color: #999; margin-top: 2px; }
+        .head .back {
+            display: inline-block;
+            font-size: 12px;
+            color: #667eea;
+            text-decoration: none;
+            margin-top: 4px;
+        }
+        .head .back:hover { text-decoration: underline; }
+
+        /* ---------- 搜索区 ---------- */
+        .search { flex: none; position: relative; }
+        .search label {
+            display: block;
+            font-size: 13px;
+            color: #555;
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+        .search-row { display: flex; gap: 8px; }
+        .search-row input {
+            flex: 1;
+            min-width: 0;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-size: 16px;         /* >=16px，iOS 聚焦不放大 */
+            outline: none;
+            font-family: inherit;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .search-row input:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+        }
+        .search-row button {
+            flex: none;
+            border: none;
+            border-radius: 8px;
+            padding: 0 18px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #fff;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .search-row button:hover { opacity: 0.92; }
+        .search-row button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .suggestions {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            margin-top: 4px;
+            max-height: 34vh;
+            overflow-y: auto;
+            z-index: 30;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+            display: none;
+        }
+        .suggestions .item { padding: 9px 12px; cursor: pointer; font-size: 14px; color: #333; }
+        .suggestions .item:hover { background: #f0f2ff; }
+        .suggestions .empty { padding: 9px 12px; font-size: 13px; color: #aaa; }
+
+        /* ---------- 结果区：内部滚动 ---------- */
+        .result {
+            flex: 1;
+            min-height: 0;
+            margin-top: 10px;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            scrollbar-width: thin;
+            padding-right: 2px;
+        }
+        .result::-webkit-scrollbar { width: 6px; }
+        .result::-webkit-scrollbar-thumb { background: #d7d9e8; border-radius: 3px; }
+
+        .tip {
+            font-size: 13px;
+            color: #999;
+            text-align: center;
+            padding: 26px 10px;
+            line-height: 1.6;
+        }
+        .tip.error { color: #e74c3c; }
+
+        /* 工人概览 */
+        .worker {
+            border: 1px solid #e6e8f2;
+            border-radius: 12px;
+            padding: 12px;
+            background: linear-gradient(135deg, #f4f6ff 0%, #faf7ff 100%);
+            margin-bottom: 10px;
+        }
+        .worker .name { font-size: 16px; color: #333; font-weight: 600; }
+        .worker .chips { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
+        .worker .chip {
+            font-size: 12px;
+            color: #5a5f7d;
+            background: #eceefb;
+            border-radius: 6px;
+            padding: 3px 8px;
+        }
+        .worker .chip b { color: #667eea; }
+        .worker .total {
+            margin-top: 8px;
+            font-size: 13px;
+            color: #555;
+        }
+        .worker .total b { font-size: 20px; color: #667eea; }
+
+        /* 项目卡片 */
+        .proj {
+            border: 1px solid #e6e8f2;
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 10px;
+            background: #fff;
+        }
+        .proj-head {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .proj-head .pname { font-size: 14px; color: #333; font-weight: 600; flex: 1; min-width: 0; }
+        .proj-head .psum { font-size: 12px; color: #667eea; font-weight: 600; white-space: nowrap; }
+        .proj-meta { font-size: 11px; color: #aaa; margin-top: 4px; }
+        .proj-meta .vacation { color: #2f6fb2; }
+
+        .month { margin-top: 10px; }
+        .month-title {
+            font-size: 12px;
+            color: #7a7f99;
+            padding-bottom: 4px;
+            border-bottom: 1px dashed #e6e8f2;
+            margin-bottom: 4px;
+        }
+        .days { display: flex; flex-wrap: wrap; gap: 6px; }
+        .day {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: #f7f8ff;
+            border: 1px solid #eceefb;
+            border-radius: 8px;
+            padding: 5px 9px;
+            font-size: 12px;
+            color: #555;
+        }
+        .day .d { color: #333; }
+        .day .w { color: #aaa; font-size: 11px; }
+        .day .h { color: #667eea; font-weight: 600; }
+        .no-hours { font-size: 12px; color: #aaa; margin-top: 8px; }
+
+        .readonly-note {
+            flex: none;
+            margin-top: 8px;
+            font-size: 11px;
+            color: #aaa;
+            text-align: center;
+        }
+
+        /* ---------- 矮屏压缩 ---------- */
+        @media (max-height: 620px) {
+            .card { padding: 12px; }
+            .head { margin-bottom: 8px; }
+            .head h1 { font-size: 16px; }
+            .head .subtitle { display: none; }
+            .result { margin-top: 8px; }
+            .worker { padding: 10px; }
+            .worker .total b { font-size: 17px; }
+            .proj { padding: 10px; }
+        }
+
+        /* ---------- 电脑端：加宽 + 项目多列 ---------- */
+        @media (min-width: 860px) {
+            .card {
+                max-width: 940px;
+                max-height: min(100%, 720px);
+                padding: 22px;
+                border-radius: 16px;
+            }
+            .head { margin-bottom: 16px; }
+            .head h1 { font-size: 22px; }
+            .head .subtitle { font-size: 14px; }
+            .search-row input { padding: 11px 14px; }
+            .search-row button { font-size: 15px; padding: 0 26px; }
+            .result { margin-top: 14px; }
+            .proj-list {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+                gap: 12px;
+            }
+            .proj { margin-bottom: 0; }
+            .proj-head .pname { font-size: 15px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="head">
+            <h1>My Work Hours</h1>
+            <p class="subtitle">Search your name to check your recorded work hours (read only)</p>
+            <a class="back" href="/">&larr; Back to the submission form</a>
+        </div>
+
+        <div class="search">
+            <label for="name">Name</label>
+            <div class="search-row">
+                <input type="text" id="name" autocomplete="off" autocapitalize="characters"
+                       spellcheck="false" placeholder="Type your name">
+                <button type="button" id="searchBtn">Search</button>
+            </div>
+            <div class="suggestions" id="nameSuggest"></div>
+        </div>
+
+        <div class="result" id="result">
+            <div class="tip">Enter your name above and tap Search to see your work hours.</div>
+        </div>
+
+        <div class="readonly-note">Only the latest submitted work card of each project is shown. Read only.</div>
+    </div>
+
+    <script>
+        var WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+        function debounce(fn, delay) {
+            var timer;
+            return function () {
+                clearTimeout(timer);
+                timer = setTimeout(fn, delay);
+            };
+        }
+
+        var input = document.getElementById("name");
+        var box = document.getElementById("nameSuggest");
+        var result = document.getElementById("result");
+        var searchBtn = document.getElementById("searchBtn");
+
+        /* ---------- 姓名自动补全 ---------- */
+        function renderSuggestions(items) {
+            box.innerHTML = "";
+            if (!items.length) {
+                var empty = document.createElement("div");
+                empty.className = "empty";
+                empty.textContent = "No matches found";
+                box.appendChild(empty);
+            } else {
+                items.forEach(function (item) {
+                    var div = document.createElement("div");
+                    div.className = "item";
+                    div.textContent = item;
+                    div.addEventListener("mousedown", function (e) {
+                        e.preventDefault();
+                        input.value = item;
+                        box.style.display = "none";
+                        search();
+                    });
+                    box.appendChild(div);
+                });
+            }
+            box.style.display = "block";
+        }
+
+        var suggest = debounce(function () {
+            var q = input.value.trim();
+            if (!q) { box.style.display = "none"; return; }
+            fetch("/api/search-name/?q=" + encodeURIComponent(q))
+                .then(function (r) { return r.json(); })
+                .then(function (data) { renderSuggestions(data.results || []); })
+                .catch(function () { box.style.display = "none"; });
+        }, 250);
+
+        input.addEventListener("input", suggest);
+        input.addEventListener("focus", function () {
+            if (input.value.trim()) suggest();
+        });
+        input.addEventListener("keydown", function (e) {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                box.style.display = "none";
+                search();
+            }
+        });
+        document.addEventListener("click", function (e) {
+            if (!input.contains(e.target) && !box.contains(e.target)) {
+                box.style.display = "none";
+            }
+        });
+        searchBtn.addEventListener("click", function () {
+            box.style.display = "none";
+            search();
+        });
+
+        /* ---------- 查询（只读展示） ---------- */
+        function el(tag, className, text) {
+            var node = document.createElement(tag);
+            if (className) node.className = className;
+            if (text !== undefined) node.textContent = text;
+            return node;
+        }
+
+        function weekday(dateStr) {
+            var parts = dateStr.split("-");
+            var d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+            return WEEKDAYS[d.getDay()];
+        }
+
+        function groupByMonth(days) {
+            var groups = [];
+            var map = {};
+            days.forEach(function (day) {
+                var key = day.date.slice(0, 7);
+                if (!map[key]) {
+                    map[key] = { month: key, items: [] };
+                    groups.push(map[key]);
+                }
+                map[key].items.push(day);
+            });
+            return groups;
+        }
+
+        function renderProject(item) {
+            var card = el("div", "proj");
+
+            var head = el("div", "proj-head");
+            head.appendChild(el("span", "pname", item.project));
+            head.appendChild(el("span", "psum", item.total_hours_label + " h"));
+            card.appendChild(head);
+
+            var meta = el("div", "proj-meta");
+            var metaText = "Latest card: " + (item.submitted_at || "-")
+                + " · " + item.worked_days + " day(s) with hours";
+            meta.appendChild(document.createTextNode(metaText));
+            if (item.is_vacation) {
+                var tag = el("span", "vacation", " · On leave");
+                meta.appendChild(tag);
+            }
+            card.appendChild(meta);
+
+            if (!item.days.length) {
+                card.appendChild(el("div", "no-hours",
+                    item.is_vacation ? "On leave, no work hours recorded."
+                                     : "No work hours recorded for this project yet."));
+                return card;
+            }
+
+            groupByMonth(item.days).forEach(function (group) {
+                var block = el("div", "month");
+                block.appendChild(el("div", "month-title", group.month));
+                var wrap = el("div", "days");
+                group.items.forEach(function (day) {
+                    var cell = el("div", "day");
+                    cell.appendChild(el("span", "d", day.date.slice(8)));
+                    cell.appendChild(el("span", "w", weekday(day.date)));
+                    cell.appendChild(el("span", "h", day.hours_label + "h"));
+                    wrap.appendChild(cell);
+                });
+                block.appendChild(wrap);
+                card.appendChild(block);
+            });
+
+            return card;
+        }
+
+        function render(data) {
+            result.innerHTML = "";
+
+            if (!data.found) {
+                result.appendChild(el("div", "tip", data.message || "No record found."));
+                return;
+            }
+
+            var worker = el("div", "worker");
+            worker.appendChild(el("div", "name", data.name));
+            var chips = el("div", "chips");
+            if (data.employee_no) {
+                var chip = el("span", "chip");
+                chip.appendChild(document.createTextNode("Employee No. "));
+                var b = document.createElement("b");
+                b.textContent = data.employee_no;
+                chip.appendChild(b);
+                chips.appendChild(chip);
+            }
+            var projChip = el("span", "chip");
+            projChip.appendChild(document.createTextNode("Projects: "));
+            var pb = document.createElement("b");
+            pb.textContent = String(data.project_count);
+            projChip.appendChild(pb);
+            chips.appendChild(projChip);
+            worker.appendChild(chips);
+
+            var total = el("div", "total");
+            total.appendChild(document.createTextNode("Total hours: "));
+            var tb = document.createElement("b");
+            tb.textContent = data.total_hours_label;
+            total.appendChild(tb);
+            total.appendChild(document.createTextNode(" h"));
+            worker.appendChild(total);
+            result.appendChild(worker);
+
+            if (!data.projects.length) {
+                result.appendChild(el("div", "tip", "No project record found."));
+                return;
+            }
+
+            var list = el("div", "proj-list");
+            data.projects.forEach(function (item) {
+                list.appendChild(renderProject(item));
+            });
+            result.appendChild(list);
+        }
+
+        function search() {
+            var q = input.value.trim();
+            if (!q) {
+                result.innerHTML = "";
+                result.appendChild(el("div", "tip error", "Please enter your name first."));
+                return;
+            }
+
+            searchBtn.disabled = true;
+            searchBtn.textContent = "...";
+            result.innerHTML = "";
+            result.appendChild(el("div", "tip", "Loading..."));
+
+            fetch("/api/check-hours/?q=" + encodeURIComponent(q))
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (!data || !data.ok) {
+                        result.innerHTML = "";
+                        result.appendChild(el("div", "tip error",
+                            (data && data.message) || "Query failed. Please try again."));
+                        return;
+                    }
+                    render(data);
+                })
+                .catch(function () {
+                    result.innerHTML = "";
+                    result.appendChild(el("div", "tip error", "Network error. Please try again."));
+                })
+                .finally(function () {
+                    searchBtn.disabled = false;
+                    searchBtn.textContent = "Search";
+                    result.scrollTop = 0;
+                });
+        }
+
+        /* 支持 /check/?q=姓名 直接带出结果 */
+        (function () {
+            var params = new URLSearchParams(window.location.search);
+            var q = (params.get("q") || "").trim();
+            if (q) {
+                input.value = q;
+                search();
+            }
+        })();
+    </script>
+</body>
+</html>
