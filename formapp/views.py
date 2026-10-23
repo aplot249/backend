@@ -1,8 +1,11 @@
 import io
 import json
+import os
 import re
-from datetime import date, timedelta
+import tempfile
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from html import escape
 from pathlib import Path
 from urllib.parse import quote
 
@@ -42,6 +45,11 @@ EXPORT_COL_RATE = 6          # F 单价/H
 EXPORT_COL_DAY_START = 7     # G~AK：1~31，第 1 列对应周期起始日（21 号）
 EXPORT_COL_TOTAL = 38        # AL Total Hour
 EXPORT_COL_AMOUNT = 39       # AM 金额/RM
+
+# 考勤工卡 PDF 导出
+PDF_FONT_NAME = "STSong-Light"   # reportlab 自带的中日韩字体，无需外挂字体文件
+PDF_IMAGE_MAX_WIDTH = 1100       # 工卡图片像素宽度上限，控制 PDF 体积与生成耗时
+PDF_IMAGE_JPEG_QUALITY = 62
 
 
 def form_view(request):
@@ -624,6 +632,278 @@ def delete_submission(request, submission_id):
             "deleted_image": deleted_image,
         }
     )
+
+
+def _pdf_register_font():
+    """注册 PDF 用的中文字体（reportlab 自带 CID 字体，重复调用安全）。"""
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+
+    if PDF_FONT_NAME not in pdfmetrics.getRegisteredFontNames():
+        pdfmetrics.registerFont(UnicodeCIDFont(PDF_FONT_NAME))
+    return PDF_FONT_NAME
+
+
+def _collect_card_pdf_rows(period_key=None):
+    """按工人汇总考勤工卡：每人一条，含工号、项目、提交时间、工时与工卡图片。
+
+    period_key 为 None 时不按考勤周期筛选（导出全部最新工卡）；
+    否则只取「工卡提交时间」落在该周期（上月 21 日 ~ 本月 20 日）的工卡。
+    """
+    start, end = _period_range(period_key) if period_key else (None, None)
+
+    latest = _latest_submission_map()
+    submissions = {
+        s.pk: s
+        for s in Submission.objects.filter(pk__in=set(latest.values())).only(
+            "pk", "name", "project", "card_image", "created_at"
+        )
+    }
+
+    # 每张工卡上已登记的工时（只统计有工时的天数）
+    hours_by_card = {}
+    for item in (
+        WorkHour.objects.filter(hours__gt=0)
+        .values("submission_id")
+        .annotate(total=Sum("hours"), days=Count("id"))
+    ):
+        hours_by_card[item["submission_id"]] = (
+            item["total"] or Decimal("0"),
+            item["days"],
+        )
+
+    cards_by_person = {}
+    for (name, project), submission_id in latest.items():
+        submission = submissions.get(submission_id)
+        if submission is None:
+            continue
+        if period_key and _period_key(submission.created_at.date()) != period_key:
+            continue
+        cards_by_person.setdefault(_normalize_name(name), []).append(submission)
+
+    # 休假人员：项目为「在休假」的工时记录
+    vacation_queryset = WorkHour.objects.filter(project=VACATION_PROJECT)
+    if period_key:
+        vacation_queryset = vacation_queryset.filter(date__gte=start, date__lte=end)
+    vacation_keys = {
+        _normalize_name(name)
+        for name in vacation_queryset.values_list("name", flat=True)
+    }
+
+    profiles = {
+        _normalize_name(person.name): person
+        for person in Name.objects.all().only("name", "employee_no", "passport_no")
+    }
+
+    rows = []
+    for key in set(profiles) | set(cards_by_person) | vacation_keys:
+        person = profiles.get(key)
+        cards = sorted(
+            cards_by_person.get(key, []),
+            key=lambda item: item.created_at,
+            reverse=True,
+        )
+        rows.append(
+            {
+                "name": person.name if person else (cards[0].name if cards else key),
+                "employee_no": person.employee_no if person else "",
+                "passport_no": person.passport_no if person else "",
+                "cards": cards,
+                "vacation": key in vacation_keys,
+            }
+        )
+    rows.sort(key=lambda row: row["name"])
+    return rows, hours_by_card
+
+
+@staff_member_required
+@require_GET
+def export_cards_pdf(request):
+    """把每个工人的考勤工卡导出成 PDF：按「姓名 → 工号 → 考勤图片」依次罗列。
+
+    - 只取每个「人 + 项目」最新提交的那张工卡（与整理页口径一致）
+    - 休假 / 未提交工卡的工人也会列出来，并写明「在休假，本周期无考勤工卡」
+    - `?month=all`（默认）导出全部；`?month=YYYY-MM` 只导出该考勤周期提交的工卡
+    """
+    month = (request.GET.get("month") or "all").strip()
+    period_key = None if month in ("", "all") else month
+    start, end = _period_range(period_key) if period_key else (None, None)
+    rows, hours_by_card = _collect_card_pdf_rows(period_key)
+
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (
+        Image as ReportImage,
+    )
+    from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer
+
+    font = _pdf_register_font()
+    margin = 16 * mm
+    content_width = A4[0] - margin * 2
+    # 单张图片高度上限，给上面的文字留出空间
+    image_max_height = 320
+
+    title_style = ParagraphStyle(
+        "title", fontName=font, fontSize=17, leading=24, spaceAfter=4
+    )
+    head_style = ParagraphStyle(
+        "head", fontName=font, fontSize=9.5, leading=14,
+        textColor=colors.HexColor("#666666"),
+    )
+    name_style = ParagraphStyle(
+        "name", fontName=font, fontSize=13, leading=19, spaceBefore=4,
+        textColor=colors.HexColor("#222222"),
+    )
+    meta_style = ParagraphStyle(
+        "meta", fontName=font, fontSize=9.5, leading=14,
+        textColor=colors.HexColor("#666666"),
+    )
+    project_style = ParagraphStyle(
+        "project", fontName=font, fontSize=11.5, leading=16, spaceBefore=6,
+        textColor=colors.HexColor("#1f3d7a"),
+    )
+    note_style = ParagraphStyle(
+        "note", fontName=font, fontSize=10, leading=15,
+        textColor=colors.HexColor("#2f6fb2"),
+    )
+
+    period_label = (
+        "全部（不按考勤周期筛选）"
+        if period_key is None
+        else f"{period_key}（{start:%Y-%m-%d} ~ {end:%Y-%m-%d}）"
+    )
+    with_card = sum(1 for row in rows if row["cards"])
+    card_count = sum(len(row["cards"]) for row in rows)
+
+    story = [
+        Paragraph("工人考勤工卡汇总", title_style),
+        Paragraph(
+            escape(f"考勤周期：{period_label}　　生成时间：{datetime.now():%Y-%m-%d %H:%M}"),
+            head_style,
+        ),
+        Paragraph(
+            escape(
+                f"共 {len(rows)} 人：{with_card} 人有工卡（{card_count} 张），"
+                f"{len(rows) - with_card} 人本周期无考勤工卡"
+            ),
+            head_style,
+        ),
+        Spacer(1, 6),
+    ]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for index, row in enumerate(rows, 1):
+            has_image = False
+            chips = []
+            if row["employee_no"]:
+                chips.append("工号 " + row["employee_no"])
+            if row["passport_no"]:
+                chips.append("护照 " + row["passport_no"])
+            if row["vacation"]:
+                chips.append("在休假")
+
+            story.append(Paragraph(f"{index}. {escape(row['name'])}", name_style))
+            if chips:
+                story.append(Paragraph(escape("　·　".join(chips)), meta_style))
+
+            if not row["cards"]:
+                note = (
+                    "在休假，本周期无考勤工卡"
+                    if row["vacation"]
+                    else "本周期无考勤工卡（未提交工卡）"
+                )
+                story.append(Paragraph(note, note_style))
+                story.append(Spacer(1, 10))
+                continue
+
+            for submission in row["cards"]:
+                total, days = hours_by_card.get(submission.pk, (Decimal("0"), 0))
+                story.append(
+                    Paragraph(
+                        escape(f"项目：{submission.project or '（未填项目）'}"),
+                        project_style,
+                    )
+                )
+                story.append(
+                    Paragraph(
+                        escape(
+                            f"提交时间：{submission.created_at:%Y-%m-%d %H:%M}"
+                            f"　工时合计：{_format_hours(total)} 小时（出勤 {days} 天）"
+                        ),
+                        meta_style,
+                    )
+                )
+
+                if submission.project == VACATION_PROJECT:
+                    story.append(Paragraph("在休假，本周期无考勤工卡", note_style))
+                    continue
+                if not submission.card_image:
+                    story.append(Paragraph("（该工卡未上传图片）", meta_style))
+                    continue
+
+                # 压缩后落盘再交给 reportlab，避免原图（几 MB）撑爆 PDF
+                path = os.path.join(tmpdir, f"card_{submission.pk}.jpg")
+                try:
+                    with default_storage.open(submission.card_image.name, "rb") as fh:
+                        raw = fh.read()
+                    with Image.open(io.BytesIO(raw)) as img:
+                        # JPEG 直接在解码阶段降采样，大图处理快很多
+                        try:
+                            img.draft("RGB", (PDF_IMAGE_MAX_WIDTH, PDF_IMAGE_MAX_WIDTH))
+                        except Exception:
+                            pass
+                        img = img.convert("RGB")
+                        width, height = img.size
+                        if width > PDF_IMAGE_MAX_WIDTH:
+                            height = round(height * PDF_IMAGE_MAX_WIDTH / width)
+                            width = PDF_IMAGE_MAX_WIDTH
+                            img = img.resize((width, height), Image.LANCZOS)
+                        img.save(
+                            path, "JPEG", quality=PDF_IMAGE_JPEG_QUALITY, optimize=True
+                        )
+                except Exception:
+                    story.append(Paragraph("（工卡图片无法读取）", meta_style))
+                    continue
+
+                scale = min(content_width / width, image_max_height / height, 1)
+                story.append(Spacer(1, 4))
+                story.append(
+                    ReportImage(path, width=width * scale, height=height * scale)
+                )
+                has_image = True
+
+            story.append(PageBreak() if has_image else Spacer(1, 12))
+
+        buffer = io.BytesIO()
+        document = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            leftMargin=margin,
+            rightMargin=margin,
+            topMargin=margin,
+            bottomMargin=margin + 6 * mm,
+            title="工人考勤工卡汇总",
+        )
+
+        def draw_footer(canvas, doc):
+            canvas.saveState()
+            canvas.setFont(font, 9)
+            canvas.setFillColor(colors.HexColor("#999999"))
+            canvas.drawString(margin, 10 * mm, "工人考勤工卡汇总")
+            canvas.drawRightString(A4[0] - margin, 10 * mm, f"第 {doc.page} 页")
+            canvas.restoreState()
+
+        document.build(story, onFirstPage=draw_footer, onLaterPages=draw_footer)
+        pdf = buffer.getvalue()
+
+    filename = f"工人考勤工卡汇总_{date.today():%Y%m%d}.pdf"
+    response = HttpResponse(pdf, content_type="application/pdf")
+    response["Content-Disposition"] = (
+        f"attachment; filename=cards.pdf; filename*=UTF-8''{quote(filename)}"
+    )
+    return response
 
 
 def _format_hours(value):

@@ -69,6 +69,9 @@
             font-family: inherit;
         }
         .export-bar button:hover { background: #f4f6ff; }
+        .export-bar button:disabled { opacity: 0.6; cursor: not-allowed; }
+        .export-bar.pdf-bar { margin-top: 8px; }
+        .export-bar .pdf-tip { font-size: 12px; opacity: 0.9; }
         .filter-bar {
             display: flex;
             align-items: center;
@@ -703,6 +706,18 @@
                     {% endfor %}
                 </select>
                 <button type="submit">导出 Excel</button>
+            </form>
+
+            <form class="export-bar pdf-bar" method="get" action="/summary/cards-pdf/" id="pdfForm">
+                <span>导出考勤工卡 PDF</span>
+                <select name="month" title="按工卡提交时间所在考勤周期筛选">
+                    <option value="all" selected>全部（不按周期筛选）</option>
+                    {% for period in periods %}
+                    <option value="{{ period.key }}">{{ period.label }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" id="pdfBtn">导出 PDF</button>
+                <span class="pdf-tip" id="pdfTip"></span>
             </form>
         </div>
 
@@ -1652,6 +1667,24 @@
                         });
                 });
             });
+
+            /* 导出工卡 PDF：图片多时较慢，点完给个「生成中」提示 */
+            var pdfForm = document.getElementById("pdfForm");
+            if (pdfForm) {
+                var pdfBtn = document.getElementById("pdfBtn");
+                var pdfTip = document.getElementById("pdfTip");
+                pdfForm.addEventListener("submit", function () {
+                    pdfBtn.disabled = true;
+                    pdfBtn.textContent = "生成中...";
+                    pdfTip.textContent = "正在生成 PDF，图片较多时请稍候…";
+                    // 浏览器下载开始后恢复按钮（请求本身是跳转下载，无法直接监听完成）
+                    setTimeout(function () {
+                        pdfBtn.disabled = false;
+                        pdfBtn.textContent = "导出 PDF";
+                        pdfTip.textContent = "";
+                    }, 30000);
+                });
+            }
 
             var toTop = document.getElementById("toTop");
             if (toTop) {

@@ -45,6 +45,11 @@ urlpatterns = [
         name="set-vacation",
     ),
     path(
+        "summary/cards-pdf/",
+        views.export_cards_pdf,
+        name="export-cards-pdf",
+    ),
+    path(
         "api/submission/<int:submission_id>/delete/",
         views.delete_submission,
         name="delete-submission",
