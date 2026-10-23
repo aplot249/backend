@@ -29,6 +29,8 @@ ALLOWED_CARD_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
 
 # 工时导出：样表模板文件名（后端根目录 / 上一级项目根目录）
 EXPORT_TEMPLATE_FILE = "样表模板.xlsx"
+# 转为休假时使用的项目名
+VACATION_PROJECT = "在休假"
 # 样表列位置：第 1 行为标题（合并单元格），第 2 行为表头，第 3 行起为数据
 EXPORT_FIRST_DATA_ROW = 3
 EXPORT_COL_NO = 1            # A 序号
@@ -267,6 +269,60 @@ def save_work_hours(request, submission_id):
     )
 
 
+def _vacation_period():
+    """休假记录所属周期：上月 21 日 ~ 本月 20 日。"""
+    return _period_range(f"{date.today():%Y-%m}")
+
+
+@staff_member_required
+@require_POST
+def set_vacation(request, name_id):
+    """把某人转为休假：在该周期（上月 21 日 ~ 本月 20 日）内每天生成一条
+    项目为「在休假」、工时为 0 的记录，供后台与导出核对。"""
+    person = get_object_or_404(Name, pk=name_id)
+    start, end = _vacation_period()
+
+    submission = (
+        Submission.objects.filter(name=person.name, project=VACATION_PROJECT)
+        .order_by("-created_at")
+        .first()
+    )
+    if submission is None:
+        submission = Submission.objects.create(
+            name=person.name, project=VACATION_PROJECT, remark="系统生成：转为休假"
+        )
+
+    created = 0
+    updated = 0
+    day = start
+    while day <= end:
+        _, is_created = WorkHour.objects.update_or_create(
+            name=person.name,
+            project=VACATION_PROJECT,
+            date=day,
+            defaults={"submission": submission, "hours": 0},
+        )
+        if is_created:
+            created += 1
+        else:
+            updated += 1
+        day += timedelta(days=1)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "message": f"已把 {person.name} 转为休假：{start:%Y-%m-%d} ~ {end:%Y-%m-%d} "
+            f"共 {created + updated} 天记录（项目「{VACATION_PROJECT}」，工时 0）",
+            "name": person.name,
+            "project": VACATION_PROJECT,
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "created": created,
+            "updated": updated,
+        }
+    )
+
+
 @staff_member_required
 @require_GET
 def person_total_hours(request, submission_id):
@@ -445,6 +501,7 @@ def summary_view(request):
 
         rows.append(
             {
+                "id": person.pk,
                 "name": person.name,
                 "employee_no": person.employee_no,
                 "passport_no": person.passport_no,
@@ -461,8 +518,10 @@ def summary_view(request):
 
     total = len(rows)
     submitted_count = sum(1 for row in rows if row["count"])
+    vacation_start, vacation_end = _vacation_period()
     context = {
         "rows": rows,
+        "vacation_period_label": f"{vacation_start:%Y-%m-%d} ~ {vacation_end:%Y-%m-%d}",
         "total": total,
         "submitted_count": submitted_count,
         "missing_count": total - submitted_count,

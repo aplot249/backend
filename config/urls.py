@@ -37,6 +37,11 @@ urlpatterns = [
         name="person-total-hours",
     ),
     path(
+        "api/name/<int:name_id>/vacation/",
+        views.set_vacation,
+        name="set-vacation",
+    ),
+    path(
         "api/submission/<int:submission_id>/delete/",
         views.delete_submission,
         name="delete-submission",

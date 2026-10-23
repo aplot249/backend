@@ -237,6 +237,19 @@
         }
         .sub-del:hover { background: #d0453b; border-color: #d0453b; color: #fff; }
         .sub-del:disabled { opacity: 0.6; cursor: not-allowed; }
+        .vacation-btn {
+            border: 1px solid #b9d3ef;
+            background: #f4f9ff;
+            color: #2f6fb2;
+            border-radius: 6px;
+            padding: 4px 12px;
+            font-size: 12px;
+            cursor: pointer;
+            font-family: inherit;
+            white-space: nowrap;
+        }
+        .vacation-btn:hover { background: #2f6fb2; border-color: #2f6fb2; color: #fff; }
+        .vacation-btn:disabled { opacity: 0.6; cursor: not-allowed; }
         .to-top {
             position: fixed;
             right: 24px;
@@ -729,6 +742,11 @@
                     <span class="tag tag-hours">总工时 <span class="js-total-hours">{{ row.total_hours_label }}</span> 小时</span>
                 {% else %}
                     <span class="tag tag-none">未提交</span>
+                    <button type="button" class="vacation-btn js-vacation"
+                            title="为 TA 生成 {{ vacation_period_label }} 的 0 工时记录，项目记为「在休假」"
+                            data-id="{{ row.id }}"
+                            data-name="{{ row.name }}"
+                            data-period="{{ vacation_period_label }}">转为休假</button>
                 {% endif %}
             </div>
 
@@ -1595,6 +1613,42 @@
                             window.alert("网络错误，请重试");
                             btn.disabled = false;
                             btn.textContent = "删除";
+                        });
+                });
+            });
+
+            document.querySelectorAll(".js-vacation").forEach(function (btn) {
+                btn.addEventListener("click", function () {
+                    var id = btn.getAttribute("data-id");
+                    var who = btn.getAttribute("data-name") || "";
+                    var period = btn.getAttribute("data-period") || "";
+                    var tip = "把 " + who + " 转为休假？\n"
+                        + "将为 TA 生成 " + period + " 每天一条「在休假」的 0 工时记录。";
+                    if (!window.confirm(tip)) return;
+
+                    btn.disabled = true;
+                    btn.textContent = "处理中...";
+                    fetch("/api/name/" + id + "/vacation/", {
+                        method: "POST",
+                        headers: {
+                            "X-CSRFToken": csrfToken(),
+                            "X-Requested-With": "XMLHttpRequest"
+                        }
+                    })
+                        .then(function (r) { return r.json(); })
+                        .then(function (data) {
+                            if (!data || !data.ok) {
+                                window.alert((data && data.message) || "操作失败");
+                                btn.disabled = false;
+                                btn.textContent = "转为休假";
+                                return;
+                            }
+                            window.location.reload();
+                        })
+                        .catch(function () {
+                            window.alert("网络错误，请重试");
+                            btn.disabled = false;
+                            btn.textContent = "转为休假";
                         });
                 });
             });
