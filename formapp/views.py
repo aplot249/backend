@@ -767,7 +767,12 @@ def _collect_card_pdf_rows(period_key=None):
 def export_cards_pdf(request):
     """把每个工人的考勤工卡导出成 PDF：按「姓名 → 工号 → 考勤图片」依次罗列。
 
-    - 只取每个「人 + 项目」最新提交的那张工卡（与整理页口径一致）
+    - 取数口径与整理页完全一致：每个「人 + 项目」取**最新提交**的那张工卡，
+      一个人干多个项目就把多个项目的工卡**都列出来**（每张都出图）
+    - **休假 / 未提交工卡的工人直接跳过**，不进 PDF（不再列「本周期无考勤工卡」的占位）
+    - 每张工卡写明该记录的提交日期时间（含秒）：`最新工卡 2026-10-22 12:15:54 · 工时 … · 出勤 …`
+    - 版面：左右两栏 × 上下两行，**一页 4 个人**；图片按格子高度自动等比缩放，
+      一格最多占半页，放不进就自动压图，且保证一个人的内容不会被跨页拆开
     - 休假 / 未提交工卡的工人也会列出来，并写明「在休假，本周期无考勤工卡」
     - `?month=all`（默认）导出全部；`?month=YYYY-MM` 只导出该考勤周期提交的工卡
     """
@@ -775,6 +780,14 @@ def export_cards_pdf(request):
     period_key = None if month in ("", "all") else month
     start, end = _period_range(period_key) if period_key else (None, None)
     rows, hours_by_card = _collect_card_pdf_rows(period_key)
+
+    # 与整理页口径一致：每个「人 + 项目」取最新提交的那张工卡，多个项目就都列出来；
+    # 休假（只有「在休假」记录）或没提交过工卡的人直接跳过，不进 PDF
+    rows = [
+        row
+        for row in rows
+        if any(item.project != VACATION_PROJECT for item in row["cards"])
+    ]
 
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
@@ -794,13 +807,14 @@ def export_cards_pdf(request):
     content_width = A4[0] - margin * 2
     # 一页正文的可用高度（已扣掉上下边距和页脚留白）
     page_usable = A4[1] - margin - (margin + 6 * mm)
-    # 版面：左右两栏并排，一栏一个人，所以一页基本就是两个人
+    # 版面：左右两栏 × 上下两行，一页放 4 个人（图片按格子高度自动缩放）
     column_gap = 8
     column_width = (content_width - column_gap) / 2
     cell_padding = 5
     inner_width = column_width - cell_padding * 2
-    image_max_height = 330      # 单张工卡图片的高度上限
-    text_overhead = 78          # 姓名 / 工号 / 项目 / 工时那几行文字的高度估算
+    # 一格的高度上限 = 半页，两行正好一页；图片按这个高度等比缩放
+    cell_max_height = page_usable / 2 - 6
+    image_max_height = 300      # 单张工卡图片的高度上限（放不进半页时还会再压）
 
     title_style = ParagraphStyle(
         "title", fontName=font, fontSize=16, leading=21, spaceAfter=2
@@ -831,7 +845,6 @@ def export_cards_pdf(request):
         if period_key is None
         else f"{period_key}（{start:%Y-%m-%d} ~ {end:%Y-%m-%d}）"
     )
-    with_card = sum(1 for row in rows if row["cards"])
     card_count = sum(len(row["cards"]) for row in rows)
 
     story = [
@@ -839,7 +852,9 @@ def export_cards_pdf(request):
         Paragraph(
             escape(
                 f"考勤周期：{period_label}　生成时间：{datetime.now():%Y-%m-%d %H:%M}"
-                f"　共 {len(rows)} 人 / {card_count} 张工卡（{with_card} 人有工卡）"
+                f"　共 {len(rows)} 人 / {card_count} 张工卡"
+                f"；口径与整理页一致（每人每个项目取最新提交的那张），"
+                f"休假 / 未提交工卡的工人不列入"
             ),
             head_style,
         ),
@@ -865,8 +880,6 @@ def export_cards_pdf(request):
                 chips.append("工号 " + row["employee_no"])
             if row["passport_no"]:
                 chips.append("护照 " + row["passport_no"])
-            if row["vacation"]:
-                chips.append("在休假")
             headline = f"{index}. {escape(row['name'])}"
             if chips:
                 headline += (
@@ -874,16 +887,8 @@ def export_cards_pdf(request):
                 )
 
             cell = [Paragraph(headline, name_style)]
-            if not row["cards"]:
-                cell.append(
-                    Paragraph(
-                        "在休假，本周期无考勤工卡"
-                        if row["vacation"]
-                        else "本周期无考勤工卡（未提交工卡）",
-                        note_style,
-                    )
-                )
 
+            # 每个项目一张：都是该项目最新提交的那张工卡
             for submission, total, days, image in card_items:
                 cell.append(
                     Paragraph(
@@ -894,16 +899,14 @@ def export_cards_pdf(request):
                 cell.append(
                     Paragraph(
                         escape(
-                            f"提交 {submission.created_at:%Y-%m-%d %H:%M}"
+                            f"最新工卡 {submission.created_at:%Y-%m-%d %H:%M:%S}"
                             f" · 工时 {_format_hours(total)} 小时 · 出勤 {days} 天"
                         ),
                         meta_style,
                     )
                 )
                 if image is None:
-                    if submission.project == VACATION_PROJECT:
-                        cell.append(Paragraph("在休假，本周期无考勤工卡", note_style))
-                    elif submission.card_image:
+                    if submission.card_image:
                         cell.append(Paragraph("（工卡图片无法读取）", meta_style))
                     else:
                         cell.append(Paragraph("（该工卡未上传图片）", meta_style))
@@ -917,11 +920,15 @@ def export_cards_pdf(request):
                 )
             return cell
 
-        # 先给每个人做一格内容（姓名 → 工号 → 项目 → 考勤图片）
+        # 先给每个人做一格内容（姓名 → 工号 → 项目 → 最新一张考勤图片）
         cells = []
         for index, row in enumerate(rows, 1):
+            # row["cards"] 已是「每个项目最新提交的那张」（与整理页同一份数据，按时间倒序）；
+            # 「在休假」这类没有考勤图片的记录不排版
             card_items = []
             for submission in row["cards"]:
+                if submission.project == VACATION_PROJECT:
+                    continue
                 total, days = hours_by_card.get(submission.pk, (Decimal("0"), 0))
                 image = None
                 if submission.project != VACATION_PROJECT and submission.card_image:
@@ -955,20 +962,11 @@ def export_cards_pdf(request):
                         image = None
                 card_items.append((submission, total, days, image))
 
-            # 一个人有多张工卡时把每张压一压，保证他这一格能放进一页
-            image_count = sum(1 for item in card_items if item[3])
-            image_cap = image_max_height
-            if image_count > 1:
-                image_cap = max(
-                    120,
-                    (page_usable - 16 - image_count * text_overhead) / image_count,
-                )
-
-            cell = build_worker_cell(index, row, card_items, image_cap)
+            # 一格最多占半页（一页两行 = 4 个人）；放不进就把图片再等比压一压
+            cell = build_worker_cell(index, row, card_items, image_max_height)
             used = measure_cell(cell)
-            if used > page_usable - 12:
-                # 文字折行多、估算偏矮时，按实际高度把图片再压一压，重排一格
-                image_cap = max(90, image_cap * (page_usable - 12) / used * 0.96)
+            if used > cell_max_height:
+                image_cap = max(80, image_max_height * cell_max_height / used * 0.97)
                 cell = build_worker_cell(index, row, card_items, image_cap)
 
             cells.append(cell)
