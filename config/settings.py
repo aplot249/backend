@@ -66,7 +66,8 @@ DATABASES = {
         "NAME": "labormanage",
         "USER": "root" if platform.system() in ['Windows'] else 'labormanage',
         "PASSWORD": "qq1788lover",
-        "HOST": "127.0.0.1" if platform.system() in ['Windows'] else '49.51.166.98',
+        "HOST": "127.0.0.1",
+        # "HOST": "127.0.0.1" if platform.system() in ['Windows'] else '49.51.166.98',
         "PORT": "3306",
         "OPTIONS": {
             "charset": "utf8mb4",
