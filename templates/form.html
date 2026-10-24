@@ -137,6 +137,18 @@
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
         }
         .field textarea { resize: none; min-height: 54px; flex: none; }
+        .field input.invalid {
+            border-color: #e74c3c;
+            box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.15);
+        }
+        .name-hint {
+            display: none;
+            margin-top: 5px;
+            font-size: 12px;
+            line-height: 1.45;
+            color: #c0392b;
+        }
+        .name-hint.show { display: block; }
 
         /* 姓名 + 自动补全 */
         .field-name { flex: none; position: relative; }
@@ -395,6 +407,10 @@
                     <input type="text" id="name" autocomplete="off" autocapitalize="characters"
                            spellcheck="false" placeholder="Type your name to search">
                     <div class="suggestions" id="nameSuggest"></div>
+                    <div class="name-hint" id="nameHint">
+                        Your name is not in our records. Please select your name from the list,
+                        or contact your supervisor if you cannot find it.
+                    </div>
                 </div>
 
                 <div class="field field-project">
@@ -462,7 +478,8 @@
                 if (!items.length) {
                     const div = document.createElement("div");
                     div.className = "empty";
-                    div.textContent = "No matches found";
+                    div.textContent = "No match found. Please check the spelling, "
+                        + "or contact your supervisor to add your name.";
                     box.appendChild(div);
                 } else {
                     items.forEach(function (item) {
@@ -622,10 +639,18 @@
         const form = document.getElementById("form");
         const message = document.getElementById("message");
         const submitBtn = document.getElementById("submitBtn");
+        const nameInput = document.getElementById("name");
+        const nameHint = document.getElementById("nameHint");
+
+        function markNameInvalid(invalid) {
+            nameInput.classList.toggle("invalid", !!invalid);
+            nameHint.classList.toggle("show", !!invalid);
+        }
+        nameInput.addEventListener("input", function () { markNameInvalid(false); });
 
         form.addEventListener("submit", function (e) {
             e.preventDefault();
-            const name = document.getElementById("name").value.trim();
+            const name = nameInput.value.trim();
             const project = selectedProject;
             const remark = document.getElementById("remark").value.trim();
             const cardFile = cardInput.files && cardInput.files[0];
@@ -634,6 +659,7 @@
                 showMessage("Please fill in your name and select a project", "error");
                 return;
             }
+            markNameInvalid(false);
             if (!cardFile) {
                 showMessage("Please upload your attendance card image", "error");
                 return;
@@ -661,6 +687,7 @@
                     if (data.ok) {
                         showMessage(data.message || "Submitted successfully", "success");
                         form.reset();
+                        markNameInvalid(false);
                         selectedProject = "";
                         projectOptions.querySelectorAll(".option").forEach(function (o) {
                             o.classList.remove("selected");
@@ -668,6 +695,12 @@
                         clearImage();
                     } else {
                         showMessage(data.message || "Submission failed", "error");
+                        if (data.field === "name") {
+                            // 姓名不在姓名库：标红姓名框 + 提示「请从列表里选你的姓名」
+                            markNameInvalid(true);
+                            nameInput.focus();
+                            nameInput.scrollIntoView({ block: "center", behavior: "smooth" });
+                        }
                     }
                 })
                 .catch(function () { showMessage("Network error. Please try again.", "error"); })

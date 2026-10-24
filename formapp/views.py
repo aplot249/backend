@@ -5,6 +5,7 @@ import re
 import tempfile
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from difflib import SequenceMatcher
 from html import escape
 from pathlib import Path
 from urllib.parse import quote
@@ -338,13 +339,41 @@ def check_hours(request):
 
 @require_GET
 def search_name(request):
-    """按关键字模糊搜索姓名，返回匹配结果。"""
+    """按关键字模糊搜索姓名，返回**姓名库里的标准写法**（工人点一下就填进表单）。
+
+    匹配从强到弱排序：归一化后完全相同 → 前缀 / 包含子串 → 单词都出现（忽略顺序）
+    → 拼写相近（个别字母打错）。这样工人随手写的写法（大小写、`MD.` 这类标点、
+    词序不同、少打一个字母）也能搜到自己并选中，提交时后台还会再校验一次。
+    """
     keyword = request.GET.get("q", "").strip()
-    queryset = Name.objects.all()
-    if keyword:
-        queryset = queryset.filter(name__icontains=keyword)
-    results = list(queryset.values_list("name", flat=True)[:20])
-    return JsonResponse({"results": results})
+    names = list(Name.objects.values_list("name", flat=True))
+    if not keyword:
+        return JsonResponse({"results": names[:20]})
+
+    key = _normalize_name(keyword)
+    words = [w for w in re.split(r"[^0-9A-Za-z]+", key) if w]
+    scored = []
+    for name in names:
+        norm = _normalize_name(name)
+        if norm == key:
+            score = 0
+        elif norm.startswith(key) or key in norm:
+            score = 1
+        elif words and all(w in norm for w in words):
+            score = 2                       # 单词都在，只是顺序不同
+        elif words and any(w in norm for w in words):
+            # 部分单词对上（如多写了 AL）：按「对上的字母比例」排，越像的越靠前
+            hit = sum(len(w) for w in words if w in norm)
+            score = 3 + (1 - hit / sum(len(w) for w in words))
+        else:
+            ratio = SequenceMatcher(None, key, norm).ratio()
+            if ratio < 0.72:
+                continue
+            score = 4 + (1 - ratio)         # 拼写相近
+        scored.append((score, name))
+
+    scored.sort(key=lambda item: (item[0], item[1]))
+    return JsonResponse({"results": [name for _score, name in scored[:20]]})
 
 
 @require_GET
@@ -427,8 +456,11 @@ def _validate_card_image(card_image):
 def submit_form(request):
     """接收并保存表单提交（姓名 + 项目 + 工卡图片，工作内容选填）。
 
-    后台「系统开关」关闭填报表单时，即使绕过页面直接调接口也会被拒绝；
-    后台管理员登录着时同样不受限制（与表单页面保持一致）。
+    - 后台「系统开关」关闭填报表单时，即使绕过页面直接调接口也会被拒绝；
+      后台管理员登录着时同样不受限制（与表单页面保持一致）
+    - **姓名必须与姓名库匹配**：匹配不到就拒绝（英文提示「请从列表里选你的姓名」），
+      匹配到就按**库里的标准写法**入库，避免同样的姓名因为大小写 / 标点 / 词序
+      写成了另一种样子，导致整理页看不到、工时统计不到、导出的 PDF 也漏人
     """
     if not SystemSetting.get_setting().form_enabled and not _is_backend_admin(
         request.user
@@ -452,12 +484,25 @@ def submit_form(request):
             {"ok": False, "message": "Name and project cannot be empty"}, status=400
         )
 
+    # 姓名必须能在姓名库里找到，并存成库里的标准写法
+    canonical_name = _match_library_name(name)
+    if canonical_name is None:
+        return JsonResponse(
+            {
+                "ok": False,
+                "field": "name",
+                "message": "We could not find your name in our records. "
+                "Please select your name from the list.",
+            },
+            status=400,
+        )
+
     error = _validate_card_image(card_image)
     if error:
         return JsonResponse({"ok": False, "message": error}, status=400)
 
     Submission.objects.create(
-        name=name, project=project, remark=remark, card_image=card_image
+        name=canonical_name, project=project, remark=remark, card_image=card_image
     )
     return JsonResponse({"ok": True, "message": "Submitted successfully"})
 
@@ -1152,6 +1197,37 @@ def _normalize_name(value):
     """
     text = re.sub(r"[.:,;_\-/]+", " ", str(value or ""))
     return re.sub(r"\s+", " ", text).strip().upper()
+
+
+def _match_library_name(raw_name):
+    """把填进来的姓名匹配到姓名库，返回**库里的标准写法**；匹配不到返回 None。
+
+    ① 归一化后完全相同（忽略大小写 / 空格 / `. : , ; _ - /`，如 `MD.SUMON` = `MD SUMON`）
+    ② 单词完全一样、只是顺序不同（如 `md rasel mia` = `MIA MD RASEL`），
+       且库里只有这一种写法时才认 —— 否则可能把两个不同的人合成一个
+
+    提交时用它的返回值入库，卡上的姓名就永远和姓名库一致，
+    整理页 / 工时统计 / PDF 导出都不会再因为写法不同而漏人。
+    """
+    key = _normalize_name(raw_name)
+    if not key:
+        return None
+
+    exact = {
+        _normalize_name(name): name
+        for name in Name.objects.values_list("name", flat=True)
+    }
+    if key in exact:
+        return exact[key]
+
+    wanted = tuple(sorted(key.split()))
+    if len(wanted) < 2:
+        return None
+    by_words = {}
+    for name in exact.values():
+        by_words.setdefault(tuple(sorted(_normalize_name(name).split())), []).append(name)
+    matched = by_words.get(wanted) or []
+    return matched[0] if len(matched) == 1 else None
 
 
 def _period_key(day):

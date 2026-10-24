@@ -4,6 +4,10 @@
 
 - 表单页面：`name`（必填）、`project`（必填）、`card_image`（工卡图片，必填）、`remark`（工作内容，选填）
 - `name` / `project` 支持联想搜索（从后台导入的 Excel 数据中匹配）
+- **姓名必须能在姓名库里匹配到才能提交**：匹配不到返回英文提示
+  `We could not find your name in our records. Please select your name from the list.`
+  （页面会把姓名输入框标红 + 聚焦）；匹配到则按**库里的标准写法**入库
+  （详见下方「姓名匹配规则」）
 - 工卡图片支持 jpg / png / webp / bmp / gif，单张不超过 10MB，提交前可预览
 - 后台（SimpleUI）支持 Excel 导入姓名库、项目库，并导出提交记录（含工卡图片链接）
 
@@ -48,6 +52,51 @@ python manage.py runserver
 - 表单页面：http://127.0.0.1:8000/
 - 数据整理页：http://127.0.0.1:8000/summary/（需先登录后台）
 - 后台管理：http://127.0.0.1:8000/admin/
+
+## 姓名匹配规则（提交时校验 + 标准化）
+
+工人填的姓名**必须与姓名库匹配**才能提交，匹配到之后按**库里的标准写法**入库
+（`views._match_library_name()`），从源头上避免「同一个人两种写法 → 整理页看不到、
+工时统计不到、PDF 导出漏人」。
+
+| 情况 | 处理 |
+|---|---|
+| 归一化后完全相同（忽略大小写 / 空格 / `. : , ; _ - /`） | ✅ 通过，存库里的标准写法 |
+| 单词完全一样、只是顺序不同（`md rasel mia` = `MIA MD RASEL`），且库里只有这一种写法 | ✅ 通过，存标准写法 |
+| 多写/少写词（`AL MD SHILON`）、拼写不同（`MD SOHEL RANA` ≠ `MD SHOHEL RANA`） | ❌ 拒绝，提示「请从列表里选你的姓名」 |
+
+- 匹配不到时返回 `400` + `{"ok": false, "field": "name", "message": "We could not find your name in our records. Please select your name from the list."}`
+- 页面表现：红色错误条 + 姓名输入框标红并聚焦 + 下方英文说明；重新输入即取消标红
+- **搜索建议同步放宽**（`/api/search-name/`）：忽略大小写/标点/词序，并对个别字母打错
+  做模糊兜底，返回的一律是库里的标准写法 —— 工人点一下就是标准姓名，不会卡住提交
+  （排序：完全相同 → 前缀/包含 → 单词都在 → 部分单词 → 拼写相近）
+- 管理员登录时同样校验（否则就是以管理员身份制造一条整理页看不到的记录）
+
+> 存量数据里已有的「姓名对不上库」的卡不受影响（已入库的历史记录不会改），
+> 需要在后台「姓名管理」订正，或用下面的清理命令删除。
+
+### 清理「姓名不在姓名库」的工卡（`purge_unmatched_names`）
+
+这些记录整理页看不到、工时统计不到、PDF 也会跳过，确认没用后可以删掉：
+
+```bash
+python manage.py purge_unmatched_names                   # 只列出，不删（默认）
+python manage.py purge_unmatched_names --delete           # 列出后要手输 DELETE 才删
+python manage.py purge_unmatched_names --delete --yes     # 跳过确认（慎用）
+python manage.py purge_unmatched_names --name SHILON      # 只看姓名含该关键字的
+python manage.py purge_unmatched_names --skip-vacation    # 不处理「在休假」的记录
+python manage.py purge_unmatched_names --include-fixable  # 连「已能匹配到库」的也一起删
+```
+
+- **先看后删**：默认纯预览；`--delete` 时列出每条记录的 `id / 项目 / 提交时间 / 图片大小 / 工时条数`
+  和「库里最接近的姓名」，并要求手输 `DELETE` 才执行，输错或回车即取消
+- 分成两组，避免删错：
+  - **A 组**：写法不同但**能自动匹配到库**（词序 / 标点差异，如 `md rasel mia` = `MIA MD RASEL`）
+    —— 默认**不删**，建议到后台改成库里的写法
+  - **B 组**：真匹配不上（多写/少写词、拼写不同） —— 这才是删除对象
+- 删除会连同**工卡图片文件**和挂在这些工卡上的**工时记录**一起删掉（外键级联），不可恢复；
+  同一个 `transaction` 内完成，中途出错整体回滚
+- 删除后打印剩余数量，方便核对
 
 ## Excel 导入（姓名库 / 项目库）
 
