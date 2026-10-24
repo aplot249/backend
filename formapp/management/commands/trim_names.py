@@ -1,7 +1,9 @@
-"""一次性清理：把姓名库、工卡提交、工时记录里的姓名 / 项目名前后空格去掉。
+"""一次性清理：把姓名库、项目库、工卡 / 工时记录里的**项目名**前后空格去掉。
 
-同时把中间连续空格合并成一个空格（`'ABDUL  MOJID'` -> `'ABDUL MOJID'`）。
-清理后「姓名库」与「工卡 / 工时」里的姓名就是同一个字符串，不再依赖归一化匹配。
+同时把中间连续空格合并成一个空格（`'RACKS  A'` -> `'RACKS A'`）。
+
+姓名不再有文本副本：工卡（`Submission`）与工时（`WorkHour`）都用**外键指向姓名库**，
+姓名以姓名库为准，所以这里只清理项目名。
 
 用法：
     python manage.py trim_names            # 只预览，不写库
@@ -65,6 +67,9 @@ class Command(BaseCommand):
                         keep.hourly_rate = drop.hourly_rate
                     keep.name = cleaned
                     keep.save()
+                    # 被合并掉的那个人：先把他的工卡 / 工时转到保留的人名下，再删除
+                    drop.submissions.update(person=keep)
+                    drop.work_hours.update(person=keep)
                     drop.delete()
             else:
                 plain.append((person, cleaned))
@@ -77,40 +82,36 @@ class Command(BaseCommand):
         self._report(f"  实际改名：{len(plain) if apply else 0} 人（冲突合并 {merged} 人）")
 
         # ---------- 2. 工卡提交（提交记录） ----------
-        self._report("【提交记录（工卡）】")
+        self._report("【提交记录（工卡）】姓名走外键，只需修整项目名")
         sub_changed = []
         for submission in Submission.objects.all():
-            cleaned_name = clean_spaces(submission.name)
             cleaned_project = clean_spaces(submission.project)
-            if cleaned_name != submission.name or cleaned_project != submission.project:
-                sub_changed.append((submission, cleaned_name, cleaned_project))
+            if cleaned_project != submission.project:
+                sub_changed.append((submission, cleaned_project))
         self._report(f"  需要修整空格：{len(sub_changed)} 条")
         if apply:
             with transaction.atomic():
-                for submission, cleaned_name, cleaned_project in sub_changed:
-                    submission.name = cleaned_name
+                for submission, cleaned_project in sub_changed:
                     submission.project = cleaned_project
                     submission.save()
 
         # ---------- 3. 工时记录 ----------
-        self._report("【工时记录】")
+        self._report("【工时记录】姓名走外键，只需修整项目名")
         hour_changed = []
         for row in WorkHour.objects.all():
-            cleaned_name = clean_spaces(row.name)
             cleaned_project = clean_spaces(row.project)
-            if cleaned_name != row.name or cleaned_project != row.project:
-                hour_changed.append((row, cleaned_name, cleaned_project))
+            if cleaned_project != row.project:
+                hour_changed.append((row, cleaned_project))
         self._report(f"  需要修整空格：{len(hour_changed)} 条")
         if apply:
             with transaction.atomic():
-                for row, cleaned_name, cleaned_project in hour_changed:
-                    row.name = cleaned_name
+                for row, cleaned_project in hour_changed:
                     row.project = cleaned_project
                     row.save()
 
             # 修整后可能撞上「人 + 项目 + 日期」唯一约束，去掉多余行
             duplicates = (
-                WorkHour.objects.values("name", "project", "date")
+                WorkHour.objects.values("person", "project", "date")
                 .annotate(c=Count("id"))
                 .filter(c__gt=1)
             )
@@ -118,13 +119,17 @@ class Command(BaseCommand):
             for group in duplicates:
                 rows = list(
                     WorkHour.objects.filter(
-                        name=group["name"], project=group["project"], date=group["date"]
+                        person_id=group["person"],
+                        project=group["project"],
+                        date=group["date"],
                     ).order_by("id")
                 )
                 keep = rows[-1]
                 dropped += len(rows) - 1
                 WorkHour.objects.filter(
-                    name=group["name"], project=group["project"], date=group["date"]
+                    person_id=group["person"],
+                    project=group["project"],
+                    date=group["date"],
                 ).exclude(pk=keep.pk).delete()
             self._report(f"  修整后重复的「人+项目+日期」多余行：{dropped}（已保留 1 条）")
 
@@ -138,7 +143,7 @@ class Command(BaseCommand):
         self._report(f"  需要修整空格：{len(proj_changed)} 条")
         if apply:
             with transaction.atomic():
-                for project, cleaned in proj_changed:
+                for project in proj_changed:
                     project.name = cleaned
                     project.save()
 

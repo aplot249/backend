@@ -16,99 +16,26 @@ def clean_spaces(value):
 
 
 def normalize_name(value):
-    """姓名归一化：去首尾与连续空白、统一大写，并把 `. : , ; _ - /` 也当成空格。
+    """归一化：去首尾与连续空白、统一大写，并把 `. : , ; _ - /` 也当成空格。
 
-    姓名库与工卡里的姓名常见这几种差异（例如库里 `MD.SUMON`、工卡上 `MD SUMON`，
-    库里 `MD: Johurul islam`、工卡上 `MD JOHURUL ISLAM`），只比空格和大小写会把同一个人
-    当成两个人：整理页看不到他的工卡（也就没法裁剪 / 录工时），工时也统计不到。
-    各处「按姓名匹配」都用这个函数，改名同步（`rename_history`）也用它判断是否实质改名。
+    用在两个地方：
+      ① **姓名**：工人填的姓名要匹配到姓名库（库里 `MD.SUMON`、工人写 `MD SUMON`），
+         只比空格和大小写会把同一个人当成两个人
+      ② **项目名**：同一个项目被写成两种样子时算作同一个（`_latest_submission_map`）
     """
     text = re.sub(r"[.:,;_\-/]+", " ", str(value or ""))
     return re.sub(r"\s+", " ", text).strip().upper()
 
 
-def _rows_with_name(model, old_name):
-    """找出表里「归一化后等于该姓名」的所有行（姓名是文本字段，不能用 SQL 直接比）。"""
-    key = normalize_name(old_name)
-    if not key:
-        return []
-    return [obj for obj in model.objects.all() if normalize_name(obj.name) == key]
-
-
-def rename_history(old_name, new_name):
-    """把某个姓名在**工卡提交 / 工时记录**里的历史写法统一改成姓名库的新写法。
-
-    后台改「姓名库」里的名字时会自动调用（`Name.save()`），这样改名不会把已有的
-    工卡、工时记录甩在后面 —— 否则整理页、工时统计、PDF 导出、工人查询都会立刻
-    看不到这个人（它们都靠姓名匹配）。
-
-    匹配用 `normalize_name`，所以只改大小写 / 标点 / 空格（归一化后一样）不会重写数据。
-
-    返回 `(改写的工卡条数, 改写的工时条数, 因重复而删掉的工时条数)`。
-    """
-    new_name = clean_spaces(new_name)
-    if not new_name or normalize_name(old_name) == normalize_name(new_name):
-        return (0, 0, 0)
-
-    submissions = _rows_with_name(Submission, old_name)
-    hours = _rows_with_name(WorkHour, old_name)
-
-    # 工时表有「姓名 + 项目 + 日期」唯一约束：改名后可能撞上同名项目同日的已有记录，
-    # 冲突时保留工时更大的一条（一样大就留后更新的），删掉另一条，避免报错丢整批
-    incoming = {
-        (normalize_name(new_name), _normalize_project(h.project), h.date)
-        for h in hours
-    }
-    conflicts = {
-        h
-        for h in WorkHour.objects.all()
-        if normalize_name(h.name) == normalize_name(new_name)
-        and (normalize_name(h.name), _normalize_project(h.project), h.date) in incoming
-        and normalize_name(h.name) != normalize_name(old_name)
-    }
-    dropped = 0
-    for row in conflicts:
-        rival = next(
-            (
-                h
-                for h in hours
-                if _normalize_project(h.project) == _normalize_project(row.project)
-                and h.date == row.date
-            ),
-            None,
-        )
-        if rival is None:
-            continue
-        loser, keeper = (
-            (row, rival)
-            if (rival.hours, rival.updated_at) >= (row.hours, row.updated_at)
-            else (rival, row)
-        )
-        loser.delete()
-        dropped += 1
-        if loser is rival:
-            hours.remove(rival)
-
-    for submission in submissions:
-        submission.name = new_name
-        submission.save(update_fields=["name"])
-    for row in hours:
-        row.name = new_name
-        row.save(update_fields=["name"])
-
-    return (len(submissions), len(hours), dropped)
-
-
-def _normalize_project(value):
-    """项目名归一化：与姓名同一套规则（大小写 / 空格 / 标点不敏感）。"""
-    return normalize_name(value)
-
-
 class Name(models.Model):
     """从 Excel 导入的姓名数据。
 
-    **改名会自动同步**：改 `name` 时，`Submission` / `WorkHour` 里同样姓名的记录
-    会一并改成新名字（见 `rename_history`），不会把历史数据甩在后面。
+    工卡提交（`Submission`）与工时记录（`WorkHour`）都用**外键指向这张表**，
+    所以：
+      - 后台改这里的姓名，所有相关记录自动跟着显示新名字（数据库外键天然跟随，
+        不需要任何同步代码）
+      - 不可能再出现「姓名对不上库」的记录 —— 工卡一定属于库里的某个人
+      - 删人时被引用会拦下（`on_delete=PROTECT`），避免误删带走他的工卡 / 工时
     """
 
     name = models.CharField("姓名", max_length=100, unique=True)
@@ -134,20 +61,7 @@ class Name(models.Model):
         self.name = clean_spaces(self.name)
         self.employee_no = clean_spaces(self.employee_no)
         self.passport_no = clean_spaces(self.passport_no)
-
-        # 改名前的旧名字（新增记录时为 None）
-        old_name = None
-        if self.pk:
-            old_name = (
-                Name.objects.filter(pk=self.pk).values_list("name", flat=True).first()
-            )
-
         super().save(*args, **kwargs)
-
-        # 实质性改名（不只是大小写 / 标点 / 空格变化）时，把工卡 / 工时里的姓名一起改掉
-        self.rename_report = (
-            rename_history(old_name, self.name) if old_name else (0, 0, 0)
-        )
 
 
 class Project(models.Model):
@@ -175,9 +89,19 @@ def work_card_upload_to(instance, filename):
 
 
 class Submission(models.Model):
-    """用户填写的表单提交记录。"""
+    """用户填写的表单提交记录（一张工卡）。
 
-    name = models.CharField("姓名", max_length=100)
+    姓名用**外键指向姓名库**（`person`），不存文本副本：
+    后台改名自动跟随，也不可能出现「姓名对不上库」的工卡。
+    """
+
+    person = models.ForeignKey(
+        Name,
+        on_delete=models.PROTECT,
+        related_name="submissions",
+        verbose_name="姓名库",
+        help_text="这张工卡属于姓名库里的哪个人（改姓名库的姓名，这里自动跟着变）",
+    )
     project = models.CharField("项目", max_length=200)
     remark = models.TextField("工作内容", blank=True, default="")
     card_image = models.ImageField(
@@ -194,11 +118,15 @@ class Submission(models.Model):
         verbose_name_plural = "提交记录"
         ordering = ["-created_at"]
 
+    @property
+    def name(self):
+        """姓名一律**实时从姓名库取**（只读，不存副本），改名后立刻生效。"""
+        return self.person.name if self.person_id else ""
+
     def __str__(self):
         return f"{self.name} - {self.project}"
 
     def save(self, *args, **kwargs):
-        self.name = clean_spaces(self.name)
         self.project = clean_spaces(self.project)
         super().save(*args, **kwargs)
 
@@ -232,7 +160,10 @@ class SystemSetting(models.Model):
 
 
 class WorkHour(models.Model):
-    """工天数据：某工人在某天的工作小时数（从工卡图片人工录入）。"""
+    """工天数据：某工人在某天的工作小时数（从工卡图片人工录入）。
+
+    与 `Submission` 一样用外键指向姓名库（`person`），不存文本副本。
+    """
 
     submission = models.ForeignKey(
         Submission,
@@ -240,7 +171,13 @@ class WorkHour(models.Model):
         related_name="work_hours",
         verbose_name="所属提交记录",
     )
-    name = models.CharField("工人姓名", max_length=100, db_index=True)
+    person = models.ForeignKey(
+        Name,
+        on_delete=models.PROTECT,
+        related_name="work_hours",
+        verbose_name="姓名库",
+        help_text="这条工时属于姓名库里的哪个人（默认跟着所属工卡走）",
+    )
     project = models.CharField("项目", max_length=200, default="", db_index=True)
     date = models.DateField("工作日期", db_index=True)
     hours = models.DecimalField("工作小时数", max_digits=5, decimal_places=2, default=0)
@@ -252,12 +189,19 @@ class WorkHour(models.Model):
         verbose_name_plural = "工时记录"
         ordering = ["date"]
         # 一人 + 一个项目 + 一天 只保留一条记录，工时统一挂在最新提交的工卡上
-        unique_together = ("name", "project", "date")
+        unique_together = ("person", "project", "date")
+
+    @property
+    def name(self):
+        """姓名**实时从姓名库取**（只读），改名后立刻生效。"""
+        return self.person.name if self.person_id else ""
 
     def __str__(self):
         return f"{self.name} ({self.project}) {self.date} {self.hours}h"
 
     def save(self, *args, **kwargs):
-        self.name = clean_spaces(self.name)
         self.project = clean_spaces(self.project)
+        # 没指定人就跟所属工卡走，保证工时和工卡属于同一个人
+        if self.person_id is None and self.submission_id:
+            self.person_id = self.submission.person_id
         super().save(*args, **kwargs)

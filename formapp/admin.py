@@ -32,14 +32,18 @@ class ProjectResource(resources.ModelResource):
 
 
 class SubmissionResource(resources.ModelResource):
-    """提交记录导入导出。"""
+    """提交记录导入导出（`name` 是姓名库的姓名，实时取值）。"""
 
     card_image_link = fields.Field(column_name="工卡图片链接")
+    name = fields.Field(column_name="姓名")
 
     class Meta:
         model = Submission
         fields = ("id", "name", "project", "remark", "card_image_link", "created_at")
         export_order = ("id", "name", "project", "remark", "card_image_link", "created_at")
+
+    def dehydrate_name(self, obj):
+        return obj.person.name if obj.person_id else ""
 
     def dehydrate_card_image_link(self, obj):
         if not obj.card_image:
@@ -51,12 +55,17 @@ class SubmissionResource(resources.ModelResource):
 
 
 class WorkHourResource(resources.ModelResource):
-    """工时记录导入导出。"""
+    """工时记录导入导出（`name` 是姓名库的姓名，实时取值）。"""
+
+    name = fields.Field(column_name="姓名")
 
     class Meta:
         model = WorkHour
         fields = ("id", "name", "project", "date", "hours", "created_at")
         export_order = ("id", "name", "project", "date", "hours", "created_at")
+
+    def dehydrate_name(self, obj):
+        return obj.person.name if obj.person_id else ""
 
 
 class NameAdminForm(forms.ModelForm):
@@ -87,13 +96,24 @@ class NameAdminForm(forms.ModelForm):
 @admin.register(Name)
 class NameAdmin(ImportExportMixin, admin.ModelAdmin):
     form = NameAdminForm
-    list_display = ("name", "employee_no", "passport_no", "hourly_rate")
+    list_display = (
+        "name", "employee_no", "passport_no", "hourly_rate",
+        "card_count", "hours_count",
+    )
     list_editable = ("employee_no", "passport_no", "hourly_rate")
     search_fields = ("name", "employee_no", "passport_no")
     resource_class = NameResource
 
+    @admin.display(description="工卡")
+    def card_count(self, obj):
+        return obj.submissions.count()
+
+    @admin.display(description="工时")
+    def hours_count(self, obj):
+        return obj.work_hours.count()
+
     def save_model(self, request, obj, form, change):
-        """改名后提示同步改了多少条工卡 / 工时记录（同步本身在 `Name.save()` 里做）。"""
+        """改名后提示：他的工卡 / 工时会跟着显示新名字（外键关联，自动跟随）。"""
         old_name = None
         if change:
             old_name = (
@@ -104,16 +124,15 @@ class NameAdmin(ImportExportMixin, admin.ModelAdmin):
 
         if not old_name or normalize_name(old_name) == normalize_name(obj.name):
             return
-        cards, hours, dropped = getattr(obj, "rename_report", (0, 0, 0))
+        cards = obj.submissions.count()
+        hours = obj.work_hours.count()
         if not (cards or hours):
             return
-        text = (
-            f"姓名已同步：{cards} 条工卡记录、{hours} 条工时记录的姓名"
-            f"已一并改为「{obj.name}」"
+        messages.success(
+            request,
+            f"姓名已改为「{obj.name}」：他名下的 {cards} 条工卡记录、{hours} 条工时记录"
+            f"都会跟着显示新名字（工卡 / 工时都用外键关联姓名库，无需手动同步）",
         )
-        if dropped:
-            text += f"（另有 {dropped} 条重复的工时记录已合并删除）"
-        messages.success(request, text)
 
 
 @admin.register(Project)
@@ -127,9 +146,10 @@ class ProjectAdmin(ImportExportMixin, admin.ModelAdmin):
 class SubmissionAdmin(ImportExportMixin, admin.ModelAdmin):
     list_display = ("name", "project", "remark", "card_thumbnail", "created_at")
     list_filter = ("project", "created_at")
-    search_fields = ("name", "project", "remark")
+    search_fields = ("person__name", "project", "remark")
     date_hierarchy = "created_at"
     readonly_fields = ("card_preview", "created_at")
+    autocomplete_fields = ("person",)
     resource_class = SubmissionResource
 
     @admin.display(description="工卡图片")
@@ -182,6 +202,7 @@ class SystemSettingAdmin(admin.ModelAdmin):
 class WorkHourAdmin(ImportExportMixin, admin.ModelAdmin):
     list_display = ("name", "project", "date", "hours", "updated_at")
     list_filter = ("project", "date")
-    search_fields = ("name", "project")
+    search_fields = ("person__name", "project")
     date_hierarchy = "date"
+    autocomplete_fields = ("person",)
     resource_class = WorkHourResource

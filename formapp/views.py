@@ -29,7 +29,7 @@ from .models import (
     Submission,
     SystemSetting,
     WorkHour,
-    normalize_name as _normalize_name,   # 姓名归一化唯一实现放在 models，改名同步也用它
+    normalize_name as _normalize_name,   # 姓名归一化唯一实现放在 models（提交匹配 / 项目分组都用）
 )
 
 # 工卡图片限制
@@ -201,29 +201,14 @@ def check_hours(request):
     candidates = exact or fuzzy
 
     if not candidates:
-        # 姓名库里没有，看工卡提交里有没有这个人
-        key = _normalize_name(name_raw)
-        submitted = any(
-            _normalize_name(person_name) == key
-            for person_name, _ in _latest_submission_map()
-        )
-        if not submitted:
-            return JsonResponse(
-                {
-                    "ok": True,
-                    "found": False,
-                    "field": "name",
-                    "message": "No record found for this name. Please check the spelling "
-                    "(it should be the same as on your work card).",
-                }
-            )
+        # 姓名库里没有这个人；而每张工卡都属于姓名库里的某个人，所以就是查无此人
         return JsonResponse(
             {
                 "ok": True,
                 "found": False,
-                "field": "code",
-                "message": "We have no employee No. / passport No. on file for this name. "
-                "Please contact the site office.",
+                "field": "name",
+                "message": "No record found for this name. Please check the spelling "
+                "(it should be the same as on your work card).",
             }
         )
 
@@ -265,14 +250,13 @@ def check_hours(request):
             }
         )
 
-    key = _normalize_name(person.name)
     matched_by = "passport" if code_key == passport_key else "employee_no"
 
-    # 每个「人 + 项目」最新工卡，筛出这个人的
+    # 每个「人 + 项目」最新工卡，筛出这个人的（工卡用外键指向姓名库，直接比 id）
     pairs = [
         (project, submission_id)
-        for (person_name, project), submission_id in _latest_submission_map().items()
-        if _normalize_name(person_name) == key
+        for (person_id, project), submission_id in _latest_submission_map().items()
+        if person_id == person.pk
     ]
 
     if not pairs:
@@ -466,8 +450,8 @@ def submit_form(request):
     - 后台「系统开关」关闭填报表单时，即使绕过页面直接调接口也会被拒绝；
       后台管理员登录着时同样不受限制（与表单页面保持一致）
     - **姓名必须与姓名库匹配**：匹配不到就拒绝（英文提示「请从列表里选你的姓名」），
-      匹配到就按**库里的标准写法**入库，避免同样的姓名因为大小写 / 标点 / 词序
-      写成了另一种样子，导致整理页看不到、工时统计不到、导出的 PDF 也漏人
+      匹配到就把这条工卡**用外键挂到姓名库那个人身上**（不存姓名文本），
+      所以不可能出现「姓名对不上库」的工卡，后台改名也会自动跟着变
     """
     if not SystemSetting.get_setting().form_enabled and not _is_backend_admin(
         request.user
@@ -491,9 +475,9 @@ def submit_form(request):
             {"ok": False, "message": "Name and project cannot be empty"}, status=400
         )
 
-    # 姓名必须能在姓名库里找到，并存成库里的标准写法
-    canonical_name = _match_library_name(name)
-    if canonical_name is None:
+    # 姓名必须能在姓名库里找到：找到就直接关联到那个人
+    person = _match_person(name)
+    if person is None:
         return JsonResponse(
             {
                 "ok": False,
@@ -509,7 +493,7 @@ def submit_form(request):
         return JsonResponse({"ok": False, "message": error}, status=400)
 
     Submission.objects.create(
-        name=canonical_name, project=project, remark=remark, card_image=card_image
+        person=person, project=project, remark=remark, card_image=card_image
     )
     return JsonResponse({"ok": True, "message": "Submitted successfully"})
 
@@ -605,7 +589,7 @@ def save_work_hours(request, submission_id):
             )
 
         WorkHour.objects.update_or_create(
-            name=submission.name,
+            person=submission.person,
             project=submission.project,
             date=work_date,
             defaults={"submission": submission, "hours": hours},
@@ -638,13 +622,13 @@ def set_vacation(request, name_id):
     start, end = _vacation_period()
 
     submission = (
-        Submission.objects.filter(name=person.name, project=VACATION_PROJECT)
+        Submission.objects.filter(person=person, project=VACATION_PROJECT)
         .order_by("-created_at")
         .first()
     )
     if submission is None:
         submission = Submission.objects.create(
-            name=person.name, project=VACATION_PROJECT, remark="系统生成：转为休假"
+            person=person, project=VACATION_PROJECT, remark="系统生成：转为休假"
         )
 
     created = 0
@@ -652,7 +636,7 @@ def set_vacation(request, name_id):
     day = start
     while day <= end:
         _, is_created = WorkHour.objects.update_or_create(
-            name=person.name,
+            person=person,
             project=VACATION_PROJECT,
             date=day,
             defaults={"submission": submission, "hours": 0},
@@ -686,7 +670,7 @@ def person_total_hours(request, submission_id):
     弹窗里保存工天后用它刷新页面上该工人的「总工时」，无需刷新整个页面。
     """
     submission = get_object_or_404(Submission, pk=submission_id)
-    total = _person_hours_map().get(_normalize_name(submission.name), Decimal("0"))
+    total = _person_hours_map().get(submission.person_id, Decimal("0"))
     return JsonResponse(
         {
             "ok": True,
@@ -746,7 +730,7 @@ def _collect_card_pdf_rows(period_key=None):
     """按工人汇总考勤工卡：每人一条，含工号、项目、提交时间、工时与工卡图片。
 
     完全以**姓名库**（`Name`）为基准，和整理页同一套口径：
-      - 只输出姓名库里存在的人（工卡姓名对不上库的先跳过，PDF 首页会提示跳过的张数）
+      - 工卡用外键指向姓名库，按人逐个列出（不存在「对不上库」的卡了）
       - 每个人每个「项目」只取**最新提交**的那张工卡；一个人干多个项目就都列出来
       - 项目名忽略大小写 / 空格 / 标点差异，避免同一个项目被算成两个
       - 休假（只有「在休假」记录）或没提交过工卡的人不列入
@@ -758,22 +742,23 @@ def _collect_card_pdf_rows(period_key=None):
     start, end = _period_range(period_key) if period_key else (None, None)
 
     profiles = {
-        _normalize_name(person.name): person
+        person.pk: person
         for person in Name.objects.all().only("name", "employee_no", "passport_no")
     }
 
-    # 每个「人 + 项目」最新一张工卡：只取姓名能对上姓名库的
+    # 每个「人 + 项目」最新一张工卡（工卡用外键指向姓名库，直接按人 id 分组）
     latest_ids = {}
     for submission in Submission.objects.order_by("created_at", "id").only(
-        "pk", "name", "project", "card_image", "created_at"
+        "pk", "person_id", "project", "card_image", "created_at"
     ):
-        key = (_normalize_name(submission.name), _normalize_name(submission.project))
-        latest_ids[key] = submission.pk
+        latest_ids[(submission.person_id, _normalize_name(submission.project))] = (
+            submission.pk
+        )
 
     submissions = {
         s.pk: s
         for s in Submission.objects.filter(pk__in=set(latest_ids.values())).only(
-            "pk", "name", "project", "card_image", "created_at"
+            "pk", "person_id", "project", "card_image", "created_at"
         )
     }
 
@@ -806,27 +791,26 @@ def _collect_card_pdf_rows(period_key=None):
         return any(start <= d <= end for d in hours_dates.get(submission.pk, ()))
 
     cards_by_person = {}
-    for (person_key, _project_key), submission_id in latest_ids.items():
+    for (person_id, _project_key), submission_id in latest_ids.items():
         submission = submissions.get(submission_id)
         if submission is None:
             continue
         if not card_in_period(submission):
             continue
-        cards_by_person.setdefault(person_key, []).append(submission)
+        cards_by_person.setdefault(person_id, []).append(submission)
 
     # 休假人员：项目为「在休假」的工时记录
     vacation_queryset = WorkHour.objects.filter(project=VACATION_PROJECT)
     if period_key:
         vacation_queryset = vacation_queryset.filter(date__gte=start, date__lte=end)
-    vacation_keys = {
-        _normalize_name(name)
-        for name in vacation_queryset.values_list("name", flat=True)
-    }
+    vacation_keys = set(
+        vacation_queryset.values_list("person_id", flat=True)
+    )
 
     rows = []
-    for person_key, person in profiles.items():
+    for person_id, person in profiles.items():
         cards = sorted(
-            cards_by_person.get(person_key, []),
+            cards_by_person.get(person_id, []),
             key=lambda item: item.created_at,
             reverse=True,
         )
@@ -838,7 +822,7 @@ def _collect_card_pdf_rows(period_key=None):
                 "employee_no": person.employee_no,
                 "passport_no": person.passport_no,
                 "cards": cards,
-                "vacation": person_key in vacation_keys,
+                "vacation": person_id in vacation_keys,
             }
         )
     rows.sort(key=lambda row: row["name"])
@@ -932,19 +916,6 @@ def export_cards_pdf(request):
         )
     )
     card_count = sum(len(row["cards"]) for row in rows)
-    # 姓名对不上姓名库的工卡：整理页看不到，这里也一并跳过（只在首页提示张数）
-    library_keys = {
-        _normalize_name(person.name) for person in Name.objects.all().only("name")
-    }
-    unmatched = [
-        s
-        for s in Submission.objects.exclude(project=VACATION_PROJECT).only(
-            "pk", "name", "project"
-        )
-        if _normalize_name(s.name) not in library_keys
-    ]
-    skipped_cards = len(unmatched)
-    skipped_names = sorted({_normalize_name(s.name) for s in unmatched})
 
     story = [
         Paragraph("工人考勤工卡汇总", title_style),
@@ -958,17 +929,6 @@ def export_cards_pdf(request):
             head_style,
         ),
     ]
-    if skipped_cards:
-        story.append(
-            Paragraph(
-                escape(
-                    f"已跳过 {skipped_cards} 张工卡：它们的姓名在姓名库里找不到"
-                    f"（共 {len(skipped_names)} 人，例如 {skipped_names[0]}），"
-                    f"整理页同样看不到。请到后台「姓名管理」补全 / 订正姓名，之后即可导出"
-                ),
-                head_style,
-            )
-        )
     story.append(Spacer(1, 4))
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -1169,13 +1129,13 @@ def _period_range(month_key):
 
 
 def _latest_submission_map():
-    """每个「人 + 项目」最新一条提交记录（工卡）：(姓名, 项目) -> 工卡 id。"""
+    """每个「人 + 项目」最新一条提交记录（工卡）：(人 id, 归一化项目) -> 工卡 id。"""
     latest = {}
     queryset = Submission.objects.order_by("created_at", "id").values_list(
-        "id", "name", "project"
+        "id", "person_id", "project"
     )
-    for submission_id, name, project in queryset:
-        latest[(name, project)] = submission_id
+    for submission_id, person_id, project in queryset:
+        latest[(person_id, _normalize_name(project))] = submission_id
     return latest
 
 
@@ -1185,43 +1145,42 @@ def _latest_submission_ids():
 
 
 def _person_hours_map():
-    """每个工人的累计工时：归一化姓名 -> 合计（跨项目相加，只取最新工卡关联的数据）。"""
+    """每个工人的累计工时：人 id -> 合计（跨项目相加，只取最新工卡关联的数据）。"""
     return {
-        _normalize_name(item["name"]): item["total"] or Decimal("0")
+        item["person_id"]: item["total"] or Decimal("0")
         for item in WorkHour.objects.filter(submission_id__in=_latest_submission_ids())
-        .values("name")
+        .values("person_id")
         .annotate(total=Sum("hours"))
     }
 
 
-def _match_library_name(raw_name):
-    """把填进来的姓名匹配到姓名库，返回**库里的标准写法**；匹配不到返回 None。
+def _match_person(raw_name):
+    """把填进来的姓名匹配到姓名库，返回**姓名库里的那个人**（`Name`）；匹配不到返回 None。
 
     ① 归一化后完全相同（忽略大小写 / 空格 / `. : , ; _ - /`，如 `MD.SUMON` = `MD SUMON`）
     ② 单词完全一样、只是顺序不同（如 `md rasel mia` = `MIA MD RASEL`），
        且库里只有这一种写法时才认 —— 否则可能把两个不同的人合成一个
 
-    提交时用它的返回值入库，卡上的姓名就永远和姓名库一致，
+    提交时用它的结果建外键，工卡就永远属于库里那个人，
     整理页 / 工时统计 / PDF 导出都不会再因为写法不同而漏人。
     """
     key = _normalize_name(raw_name)
     if not key:
         return None
 
-    exact = {
-        _normalize_name(name): name
-        for name in Name.objects.values_list("name", flat=True)
-    }
-    if key in exact:
-        return exact[key]
+    persons = list(Name.objects.all().only("pk", "name"))
+    for person in persons:
+        if _normalize_name(person.name) == key:
+            return person
 
     wanted = tuple(sorted(key.split()))
     if len(wanted) < 2:
         return None
-    by_words = {}
-    for name in exact.values():
-        by_words.setdefault(tuple(sorted(_normalize_name(name).split())), []).append(name)
-    matched = by_words.get(wanted) or []
+    matched = [
+        person
+        for person in persons
+        if tuple(sorted(_normalize_name(person.name).split())) == wanted
+    ]
     return matched[0] if len(matched) == 1 else None
 
 
@@ -1257,20 +1216,24 @@ def summary_view(request):
         item["submission_id"]: item["c"]
         for item in WorkHour.objects.values("submission_id").annotate(c=Count("id"))
     }
-    for submission in Submission.objects.order_by("-created_at"):
+    for submission in (
+        Submission.objects.order_by("-created_at")
+        .select_related("person")
+        .only("pk", "person_id", "person__name", "project", "card_image", "created_at")
+    ):
         submission.period_month = _payroll_month(submission.created_at)
         # 只有最新工卡可录入工时，历史工卡只读
         submission.is_latest_card = submission.pk in latest_ids
         submission.hours_count = hours_count_map.get(submission.pk, 0)
-        # 按归一化姓名分组，避免姓名库与工卡姓名空格 / 大小写不一致导致分组不到
-        grouped.setdefault(_normalize_name(submission.name), []).append(submission)
+        # 工卡用外键指向姓名库，直接按人 id 分组
+        grouped.setdefault(submission.person_id, []).append(submission)
 
     # 每个工人的累计工时（跨项目相加，只取最新工卡关联的数据）
     hours_map = _person_hours_map()
 
     rows = []
     for person in Name.objects.all().only("name", "employee_no", "passport_no"):
-        person_key = _normalize_name(person.name)
+        person_key = person.pk
         submissions = grouped.get(person_key, [])
 
         # 同一个人在不同项目下的提交分开成列，每个项目内按提交时间倒序
@@ -1353,34 +1316,38 @@ def _collect_export_rows(start, end):
         WorkHour.objects.filter(
             date__gte=start, date__lte=end, submission_id__in=_latest_submission_ids()
         )
-        .values_list("name", "date", "hours", "project")
+        .values_list("person_id", "date", "hours", "project")
     )
-    for name, work_date, hours, project in queryset:
+    for person_id, work_date, hours, project in queryset:
         hours = hours or Decimal("0")
         item = workers.setdefault(
-            name, {"hours": {}, "projects": [], "total": Decimal("0")}
+            person_id, {"hours": {}, "projects": [], "total": Decimal("0")}
         )
         item["hours"][work_date] = item["hours"].get(work_date, Decimal("0")) + hours
         item["total"] += hours
         if project and project not in item["projects"]:
             item["projects"].append(project)
 
-    # 按归一化姓名匹配姓名库，避免因空格 / 大小写差异取不到工号、护照号、单价
+    # 工时用外键指向姓名库，直接取工号 / 护照号 / 单价
     profiles = {
-        _normalize_name(person.name): person
+        person.pk: person
         for person in Name.objects.all().only(
             "name", "employee_no", "passport_no", "hourly_rate"
         )
     }
 
+    def person_sort_key(person_id):
+        person = profiles.get(person_id)
+        return person.name if person else ""
+
     rows = []
-    for name in sorted(workers):
-        item = workers[name]
-        person = profiles.get(_normalize_name(name))
+    for person_id in sorted(workers, key=person_sort_key):
+        item = workers[person_id]
+        person = profiles.get(person_id)
         rate = person.hourly_rate if person else Decimal("0")
         rows.append(
             {
-                "name": name,
+                "name": person.name if person else "",
                 "site": " / ".join(item["projects"]),
                 "employee_no": person.employee_no if person else "",
                 "passport_no": person.passport_no if person else "",
