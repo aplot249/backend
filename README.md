@@ -4,10 +4,10 @@
 
 - 表单页面：`name`（必填）、`project`（必填）、`card_image`（工卡图片，必填）、`remark`（工作内容，选填）
 - `name` / `project` 支持联想搜索（从后台导入的 Excel 数据中匹配）
-- **姓名必须能在姓名库里匹配到才能提交**：匹配不到返回英文提示
-  `We could not find your name in our records. Please select your name from the list.`
-  （页面会把姓名输入框标红 + 聚焦）；匹配到则按**库里的标准写法**入库
-  （详见下方「姓名匹配规则」）
+- **姓名必须从列表里选**（不能自己敲）：没选就提交 → 提示
+  `Please select your name from the list.` 并标红姓名框；
+  绕过页面直接调接口也会被后端拦下（`We could not find your name in our records. Please select your name from the list.`）；
+  选中/匹配到则按**库里的标准写法**入库（详见下方「姓名匹配规则」）
 - 工卡图片支持 jpg / png / webp / bmp / gif，单张不超过 10MB，提交前可预览
 - 后台（SimpleUI）支持 Excel 导入姓名库、项目库，并导出提交记录（含工卡图片链接）
 
@@ -67,6 +67,8 @@ python manage.py runserver
 
 - 匹配不到时返回 `400` + `{"ok": false, "field": "name", "message": "We could not find your name in our records. Please select your name from the list."}`
 - 页面表现：红色错误条 + 姓名输入框标红并聚焦 + 下方英文说明；重新输入即取消标红
+- **前端强制「点选」**：只记录「点了建议列表里哪一项」（`selectedName`），
+  自己敲的字不算；改动输入框内容即作废，必须重新点；失焦时若完整写下某个库内姓名则自动认作选中
 - **搜索建议同步放宽**（`/api/search-name/`）：忽略大小写/标点/词序，并对个别字母打错
   做模糊兜底，返回的一律是库里的标准写法 —— 工人点一下就是标准姓名，不会卡住提交
   （排序：完全相同 → 前缀/包含 → 单词都在 → 部分单词 → 拼写相近）
@@ -74,6 +76,20 @@ python manage.py runserver
 
 > 存量数据里已有的「姓名对不上库」的卡不受影响（已入库的历史记录不会改），
 > 需要在后台「姓名管理」订正，或用下面的清理命令删除。
+
+### 改名自动同步（姓名库 → 工卡 / 工时）
+
+在后台改「姓名库」里某个人的名字时，**工卡提交记录（`Submission.name`）和工时记录
+（`WorkHour.name`）里的同一个姓名会自动跟着改成新名字**（`Name.save()` → `rename_history()`），
+不会再出现「改名后整理页 / 工时统计 / 工人查询立刻看不到这个人」的情况。
+
+- 匹配用 `normalize_name`，所以**只改大小写 / 标点 / 空格**（`MD.SHILON` → `MD SHILON`）
+  不算改名，**不会**重写任何数据
+- 改成**库里已有的名字**（忽略大小写 / 标点后同名）会被表单拦下并红字提示，不会撞唯一约束报 500
+- 若改名后撞上工时表的「姓名 + 项目 + 日期」唯一约束，自动合并：保留工时更大的一条，
+  删掉另一条，并在提示里说明删了几条
+- 保存后后台右上角弹出提示：`姓名已同步：N 条工卡记录、M 条工时记录的姓名已一并改为「…」`
+- 触发范围：后台单条改名、Excel 导入（走 `Name.save()`）都会同步
 
 ### 清理「姓名不在姓名库」的工卡（`purge_unmatched_names`）
 

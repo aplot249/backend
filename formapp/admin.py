@@ -1,9 +1,11 @@
 from import_export import resources, fields
 from import_export.admin import ImportExportMixin
-from django.contrib import admin
+from django import forms
+from django.contrib import admin, messages
 from django.utils.html import format_html
 
 from .models import Name, Project, Submission, SystemSetting, WorkHour
+from .models import clean_spaces, normalize_name
 
 
 class NameResource(resources.ModelResource):
@@ -57,12 +59,61 @@ class WorkHourResource(resources.ModelResource):
         export_order = ("id", "name", "project", "date", "hours", "created_at")
 
 
+class NameAdminForm(forms.ModelForm):
+    """姓名库表单：不允许改成「库里已有的名字」（忽略大小写 / 标点后同名也算）。
+
+    否则会撞数据库的唯一约束报 500；放在表单里校验，改错了就在字段旁边红字提示。
+    """
+
+    class Meta:
+        model = Name
+        fields = "__all__"
+
+    def clean_name(self):
+        value = clean_spaces(self.cleaned_data.get("name"))
+        clash = [
+            other.name
+            for other in Name.objects.exclude(pk=self.instance.pk).only("pk", "name")
+            if normalize_name(other.name) == normalize_name(value)
+        ]
+        if clash:
+            raise forms.ValidationError(
+                f"姓名库里已经有「{clash[0]}」了（忽略大小写 / 标点后同名），"
+                f"不能改成这个名字。要把两个人合并，请先删掉多余的那条姓名记录。"
+            )
+        return value
+
+
 @admin.register(Name)
 class NameAdmin(ImportExportMixin, admin.ModelAdmin):
+    form = NameAdminForm
     list_display = ("name", "employee_no", "passport_no", "hourly_rate")
     list_editable = ("employee_no", "passport_no", "hourly_rate")
     search_fields = ("name", "employee_no", "passport_no")
     resource_class = NameResource
+
+    def save_model(self, request, obj, form, change):
+        """改名后提示同步改了多少条工卡 / 工时记录（同步本身在 `Name.save()` 里做）。"""
+        old_name = None
+        if change:
+            old_name = (
+                Name.objects.filter(pk=obj.pk).values_list("name", flat=True).first()
+            )
+
+        super().save_model(request, obj, form, change)
+
+        if not old_name or normalize_name(old_name) == normalize_name(obj.name):
+            return
+        cards, hours, dropped = getattr(obj, "rename_report", (0, 0, 0))
+        if not (cards or hours):
+            return
+        text = (
+            f"姓名已同步：{cards} 条工卡记录、{hours} 条工时记录的姓名"
+            f"已一并改为「{obj.name}」"
+        )
+        if dropped:
+            text += f"（另有 {dropped} 条重复的工时记录已合并删除）"
+        messages.success(request, text)
 
 
 @admin.register(Project)

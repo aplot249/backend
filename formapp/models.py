@@ -15,8 +15,101 @@ def clean_spaces(value):
     return re.sub(r"\s+", " ", str(value or "")).strip()
 
 
+def normalize_name(value):
+    """姓名归一化：去首尾与连续空白、统一大写，并把 `. : , ; _ - /` 也当成空格。
+
+    姓名库与工卡里的姓名常见这几种差异（例如库里 `MD.SUMON`、工卡上 `MD SUMON`，
+    库里 `MD: Johurul islam`、工卡上 `MD JOHURUL ISLAM`），只比空格和大小写会把同一个人
+    当成两个人：整理页看不到他的工卡（也就没法裁剪 / 录工时），工时也统计不到。
+    各处「按姓名匹配」都用这个函数，改名同步（`rename_history`）也用它判断是否实质改名。
+    """
+    text = re.sub(r"[.:,;_\-/]+", " ", str(value or ""))
+    return re.sub(r"\s+", " ", text).strip().upper()
+
+
+def _rows_with_name(model, old_name):
+    """找出表里「归一化后等于该姓名」的所有行（姓名是文本字段，不能用 SQL 直接比）。"""
+    key = normalize_name(old_name)
+    if not key:
+        return []
+    return [obj for obj in model.objects.all() if normalize_name(obj.name) == key]
+
+
+def rename_history(old_name, new_name):
+    """把某个姓名在**工卡提交 / 工时记录**里的历史写法统一改成姓名库的新写法。
+
+    后台改「姓名库」里的名字时会自动调用（`Name.save()`），这样改名不会把已有的
+    工卡、工时记录甩在后面 —— 否则整理页、工时统计、PDF 导出、工人查询都会立刻
+    看不到这个人（它们都靠姓名匹配）。
+
+    匹配用 `normalize_name`，所以只改大小写 / 标点 / 空格（归一化后一样）不会重写数据。
+
+    返回 `(改写的工卡条数, 改写的工时条数, 因重复而删掉的工时条数)`。
+    """
+    new_name = clean_spaces(new_name)
+    if not new_name or normalize_name(old_name) == normalize_name(new_name):
+        return (0, 0, 0)
+
+    submissions = _rows_with_name(Submission, old_name)
+    hours = _rows_with_name(WorkHour, old_name)
+
+    # 工时表有「姓名 + 项目 + 日期」唯一约束：改名后可能撞上同名项目同日的已有记录，
+    # 冲突时保留工时更大的一条（一样大就留后更新的），删掉另一条，避免报错丢整批
+    incoming = {
+        (normalize_name(new_name), _normalize_project(h.project), h.date)
+        for h in hours
+    }
+    conflicts = {
+        h
+        for h in WorkHour.objects.all()
+        if normalize_name(h.name) == normalize_name(new_name)
+        and (normalize_name(h.name), _normalize_project(h.project), h.date) in incoming
+        and normalize_name(h.name) != normalize_name(old_name)
+    }
+    dropped = 0
+    for row in conflicts:
+        rival = next(
+            (
+                h
+                for h in hours
+                if _normalize_project(h.project) == _normalize_project(row.project)
+                and h.date == row.date
+            ),
+            None,
+        )
+        if rival is None:
+            continue
+        loser, keeper = (
+            (row, rival)
+            if (rival.hours, rival.updated_at) >= (row.hours, row.updated_at)
+            else (rival, row)
+        )
+        loser.delete()
+        dropped += 1
+        if loser is rival:
+            hours.remove(rival)
+
+    for submission in submissions:
+        submission.name = new_name
+        submission.save(update_fields=["name"])
+    for row in hours:
+        row.name = new_name
+        row.save(update_fields=["name"])
+
+    return (len(submissions), len(hours), dropped)
+
+
+def _normalize_project(value):
+    """项目名归一化：与姓名同一套规则（大小写 / 空格 / 标点不敏感）。"""
+    return normalize_name(value)
+
+
 class Name(models.Model):
-    """从 Excel 导入的姓名数据。"""
+    """从 Excel 导入的姓名数据。
+
+    **改名会自动同步**：改 `name` 时，`Submission` / `WorkHour` 里同样姓名的记录
+    会一并改成新名字（见 `rename_history`），不会把历史数据甩在后面。
+    """
 
     name = models.CharField("姓名", max_length=100, unique=True)
     employee_no = models.CharField("工号", max_length=50, blank=True, default="")
@@ -41,7 +134,20 @@ class Name(models.Model):
         self.name = clean_spaces(self.name)
         self.employee_no = clean_spaces(self.employee_no)
         self.passport_no = clean_spaces(self.passport_no)
+
+        # 改名前的旧名字（新增记录时为 None）
+        old_name = None
+        if self.pk:
+            old_name = (
+                Name.objects.filter(pk=self.pk).values_list("name", flat=True).first()
+            )
+
         super().save(*args, **kwargs)
+
+        # 实质性改名（不只是大小写 / 标点 / 空格变化）时，把工卡 / 工时里的姓名一起改掉
+        self.rename_report = (
+            rename_history(old_name, self.name) if old_name else (0, 0, 0)
+        )
 
 
 class Project(models.Model):

@@ -23,7 +23,14 @@ from PIL import Image, UnidentifiedImageError
 
 from django.db.models import Count, Sum
 
-from .models import Name, Project, Submission, SystemSetting, WorkHour
+from .models import (
+    Name,
+    Project,
+    Submission,
+    SystemSetting,
+    WorkHour,
+    normalize_name as _normalize_name,   # 姓名归一化唯一实现放在 models，改名同步也用它
+)
 
 # 工卡图片限制
 MAX_CARD_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB
@@ -1185,18 +1192,6 @@ def _person_hours_map():
         .values("name")
         .annotate(total=Sum("hours"))
     }
-
-
-def _normalize_name(value):
-    """姓名归一化：去首尾与连续空白、统一大写，并把 `. : , ; _ - /` 也当成空格。
-
-    姓名库与工卡里的姓名常见这几种差异（例如库里 `MD.SUMON`、工卡上 `MD SUMON`，
-    库里 `MD: Johurul islam`、工卡上 `MD JOHURUL ISLAM`），只比空格和大小写会把同一个人
-    当成两个人：整理页看不到他的工卡（也就没法裁剪 / 录工时），工时也统计不到。
-    经校验：姓名库 129 个名字、工卡上 100 个名字，加这条规则后都不会互相撞号。
-    """
-    text = re.sub(r"[.:,;_\-/]+", " ", str(value or ""))
-    return re.sub(r"\s+", " ", text).strip().upper()
 
 
 def _match_library_name(raw_name):
