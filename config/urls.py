@@ -35,6 +35,11 @@ urlpatterns = [
         name="save-work-hours",
     ),
     path(
+        "api/submission/<int:submission_id>/ai-recognize/",
+        views.ai_recognize_hours,
+        name="ai-recognize",
+    ),
+    path(
         "api/submission/<int:submission_id>/total-hours/",
         views.person_total_hours,
         name="person-total-hours",

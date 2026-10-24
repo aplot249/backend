@@ -1,5 +1,6 @@
 import io
 import json
+import logging
 import os
 import re
 import tempfile
@@ -23,6 +24,14 @@ from PIL import Image, UnidentifiedImageError
 
 from django.db.models import Count, Sum
 
+logger = logging.getLogger(__name__)
+
+from .ai_recognize import (
+    AIConfigError,
+    AIResponseError,
+    recognize_hours,
+    recognize_region,
+)
 from .models import (
     Name,
     Project,
@@ -618,6 +627,86 @@ def save_work_hours(request, submission_id):
             "worked_days": sum(1 for _, hours in saved if hours > 0),
         }
     )
+
+
+@staff_member_required
+@require_POST
+def ai_recognize_hours(request, submission_id):
+    """AI 识别工卡工时，**只返回建议，不写数据库**。
+
+    两种模式（页面用前者，命令行测用后者）：
+      - **选区模式**（请求带 `image`，页面框选后传来）：只按顺序读数字，
+        返回逗号分隔的文本，管理员在页面上编辑后自己点「填入工时表」
+      - **整卡模式**（不带 `image`）：读「日期 + 工时」，返回 {日期: 工时}
+    """
+    submission = get_object_or_404(Submission, pk=submission_id)
+
+    try:
+        data = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        data = {}
+
+    try:
+        # ---------- 选区模式：页面框选的那块图 ----------
+        if data.get("image"):
+            try:
+                result = recognize_region(data["image"])
+            except (AIConfigError, AIResponseError) as exc:
+                status = 503 if isinstance(exc, AIConfigError) else 502
+                return JsonResponse({"ok": False, "message": str(exc)}, status=status)
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "mode": "region",
+                    "text": result["text"],
+                    "values": result["values"],
+                    "count": result["count"],
+                    "skipped": result["skipped"],
+                    "raw": result["raw"],
+                }
+            )
+
+        # ---------- 整卡模式：识别整张工卡上的日期 + 工时 ----------
+        if not submission.card_image:
+            return JsonResponse(
+                {"ok": False, "message": "这张工卡没有图片，无法识别"}, status=400
+            )
+
+        # 识别哪个考勤周期由弹窗当前选中的周期决定（默认这张卡提交时标注的月份）
+        period_month = (data.get("period_month") or "").strip() or _payroll_month(
+            submission.created_at
+        )
+        if not re.fullmatch(r"\d{4}-\d{2}", period_month):
+            return JsonResponse({"ok": False, "message": "考勤周期格式不对"}, status=400)
+
+        start, end = _period_range(period_month)
+
+        try:
+            result = recognize_hours(submission.card_image, start, end)
+        except AIConfigError as exc:
+            return JsonResponse({"ok": False, "message": str(exc)}, status=503)
+        except AIResponseError as exc:
+            return JsonResponse({"ok": False, "message": str(exc)}, status=502)
+
+        total = sum(result["entries"].values())
+        return JsonResponse(
+            {
+                "ok": True,
+                "mode": "card",
+                "period_month": period_month,
+                "period_range": f"{start.isoformat()} ~ {end.isoformat()}",
+                "entries": result["entries"],
+                "ignored": result["ignored"],
+                "note": result["note"],
+                "count": len(result["entries"]),
+                "total_hours": round(total, 2),
+            }
+        )
+    except Exception:  # 兜底：识别是辅助功能，不能因为报错把整理页搞挂
+        logger.exception("AI 识别失败 submission_id=%s", submission_id)
+        return JsonResponse(
+            {"ok": False, "message": "AI 识别失败，请重试（详情见服务端日志）"}, status=500
+        )
 
 
 def _vacation_period():

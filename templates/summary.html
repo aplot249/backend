@@ -337,6 +337,14 @@
             border-bottom: 1px solid rgba(255, 255, 255, 0.6);
         }
         /* 图片编辑弹窗 */
+        /* 弹窗打开时锁住背景：滚轮 / 触摸都不会再滚动后面的页面。
+           padding-right 补上滚动条宽度，页面不会因滚动条消失而左右跳一下 */
+        html.modal-open { overflow: hidden; }
+        html.modal-open body {
+            overflow: hidden;
+            padding-right: calc(20px + var(--scrollbar-width, 0px));
+        }
+
         .modal {
             position: fixed;
             inset: 0;
@@ -457,6 +465,73 @@
             color: #9aa0b5;
             cursor: not-allowed;
         }
+        /* AI 识别：按钮行 + 识别填入的格子高亮 */
+        .ai-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .ai-btn {
+            flex: none;
+            padding: 6px 14px;
+            font-size: 12px;
+            border: 1px dashed #b3a6f0;
+            background: #f5f2ff;
+            color: #6653d6;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        .ai-btn:hover { background: #ede8ff; }
+        .ai-btn:disabled { opacity: 0.6; cursor: default; }
+        .ai-btn.fill {
+            border-style: solid;
+            border-color: #6653d6;
+            background: #6653d6;
+            color: #fff;
+        }
+        .ai-btn.fill:hover { background: #5744c4; }
+        .ai-hint { font-size: 11px; color: #aaa; line-height: 1.5; }
+        .ai-text {
+            width: 100%;
+            box-sizing: border-box;
+            margin-bottom: 6px;
+            padding: 6px 8px;
+            border: 1px solid #d9d5f5;
+            border-radius: 8px;
+            background: #fdfcff;
+            font-size: 12px;
+            font-family: inherit;
+            line-height: 1.6;
+            resize: vertical;
+        }
+        .ai-text:focus { outline: none; border-color: #6653d6; }
+        /* 上下两段：上面一行提示文字，下面一行三个按钮 */
+        .ai-foot {
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 6px;
+            margin-bottom: 8px;
+        }
+        .ai-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .ai-msg {
+            font-size: 12px;
+            color: #7a7f99;
+            line-height: 1.5;
+            min-width: 0;
+            min-height: 18px;      /* 没有提示时也占住一行，按钮不会上下跳 */
+        }
+        .ai-msg.error { color: #e74c3c; }
+        .ai-msg.success { color: #27ae60; }
+        .cal-cell.ai-filled input {
+            background: #fff7df;
+            border-color: #ecc94b;
+        }
         .hours-scroll {
             max-height: 46vh;
             overflow-y: auto;
@@ -504,6 +579,22 @@
             border-color: #c3cbfc;
             font-weight: 600;
             color: #4a54a8;
+        }
+        /* 光标：下次「填入工时表」从这一格开始 */
+        .cal-cell.ai-cursor {
+            border-color: #6653d6;
+            box-shadow: 0 0 0 2px rgba(102, 83, 214, 0.18);
+            position: relative;
+        }
+        .cal-cell.ai-cursor::after {
+            content: "";
+            position: absolute;
+            left: 50%;
+            bottom: -7px;
+            margin-left: -4px;
+            border-left: 4px solid transparent;
+            border-right: 4px solid transparent;
+            border-top: 5px solid #6653d6;
         }
         .hours-foot {
             display: flex;
@@ -581,6 +672,9 @@
             background: rgba(12, 15, 30, 0.5);
             pointer-events: none;
         }
+        /* AI 模式：鼠标变十字，在图上按住左键拖即可画出识别区 */
+        .crop-stage.draw { touch-action: none; }
+        .crop-stage.draw #viewCanvas { cursor: crosshair; }
         #viewCanvas {
             display: block;
             max-width: 100%;
@@ -615,6 +709,33 @@
         .crop-box .handle[data-dir="s"] { left: 50%; bottom: -6px; margin-left: -6px; cursor: ns-resize; }
         .crop-box .handle[data-dir="sw"] { left: -6px; bottom: -6px; cursor: nesw-resize; }
         .crop-box .handle[data-dir="w"] { left: -6px; top: 50%; margin-top: -6px; cursor: ew-resize; }
+
+        /* AI 识别区：紫色，和裁剪框（蓝）区分开；未激活的那个不能拖、半透明 */
+        .crop-box.ai-box { border-color: #b9a8ff; outline-color: rgba(185, 168, 255, 0.9); }
+        .crop-box.ai-box .handle { background: #f3efff; border-color: #6653d6; }
+        .crop-box.inactive {
+            pointer-events: none;
+            opacity: 0.4;
+            outline-style: dotted;
+        }
+        .sel-mode {
+            display: inline-flex;
+            border: 1px solid #d9d5f5;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-right: 4px;
+        }
+        .sel-mode .sel-btn {
+            padding: 5px 10px;
+            font-size: 12px;
+            border: 0;
+            background: #fff;
+            color: #7a7f99;
+            cursor: pointer;
+        }
+        .sel-mode .sel-btn + .sel-btn { border-left: 1px solid #eceefb; }
+        .sel-mode .sel-btn:hover { background: #f5f2ff; }
+        .sel-mode .sel-btn.active { background: #6653d6; color: #fff; }
         .info {
             margin-top: 10px;
             font-size: 12px;
@@ -850,6 +971,10 @@
                 <div class="modal-cols">
                     <div class="col-img">
                         <div class="toolbar">
+                            <span class="sel-mode" title="两套选区互不影响：裁剪只决定保存出来的图片，AI 识别区只决定发给 AI 的是哪一块">
+                                <button type="button" class="sel-btn active" id="selCrop" data-sel="crop">裁剪</button>
+                                <button type="button" class="sel-btn" id="selAi" data-sel="ai">AI 识别区</button>
+                            </span>
                             <button type="button" data-act="rotate-left">左转 90°</button>
                             <button type="button" data-act="rotate-right">右转 90°</button>
                             <label class="slider">
@@ -868,6 +993,17 @@
                                 <div class="shade" id="shadeLeft"></div>
                                 <div class="shade" id="shadeRight"></div>
                                 <div class="crop-box" id="cropBox">
+                                    <div class="handle" data-dir="nw"></div>
+                                    <div class="handle" data-dir="n"></div>
+                                    <div class="handle" data-dir="ne"></div>
+                                    <div class="handle" data-dir="e"></div>
+                                    <div class="handle" data-dir="se"></div>
+                                    <div class="handle" data-dir="s"></div>
+                                    <div class="handle" data-dir="sw"></div>
+                                    <div class="handle" data-dir="w"></div>
+                                </div>
+                                <!-- AI 识别区：和裁剪框完全独立，只决定发给 AI 的是哪一块 -->
+                                <div class="crop-box ai-box inactive" id="aiBox" hidden>
                                     <div class="handle" data-dir="nw"></div>
                                     <div class="handle" data-dir="n"></div>
                                     <div class="handle" data-dir="ne"></div>
@@ -902,6 +1038,22 @@
                         <div class="hours-lock" id="hoursLock" hidden>
                             历史工卡：只有该工人该项目<b>最新提交</b>的工卡才能录入 / 保存工天数据，此卡仅供查看。
                         </div>
+                        <div class="ai-row">
+                            <button type="button" class="ai-btn" id="aiRecognize"
+                                    title="识别裁剪框框住的区域，读出工时数字（逗号分隔）">AI 识别选区</button>
+                            <span class="ai-hint">点「AI 识别区」，在图上按住左键拖出要识别的区域</span>
+                        </div>
+                        <textarea class="ai-text" id="aiText" rows="2" hidden
+                                  placeholder="识别结果：逗号分隔的工时（如 10,10,13,0,8），可直接编辑"></textarea>
+                        <div class="ai-foot" id="aiFoot" hidden>
+                            <span class="ai-msg" id="aiMsg"></span>
+                            <div class="ai-actions">
+                                <button type="button" class="ai-btn" id="aiRewind" title="把光标移回周期第一天">回到第一天</button>
+                                <button type="button" class="ai-btn" id="aiClear">清空</button>
+                                <button type="button" class="ai-btn fill" id="aiFill"
+                                        title="按逗号拆分，从光标处开始一格一格填">填入工时表</button>
+                            </div>
+                        </div>
                         <div class="hours-scroll" id="hoursScroll">
                             <div class="hours-loading">加载中...</div>
                         </div>
@@ -922,7 +1074,11 @@
         (function () {
             var modal = document.getElementById("editorModal");
             var view = document.getElementById("viewCanvas");
+            var cropStage = document.getElementById("cropStage");
             var cropBox = document.getElementById("cropBox");
+            var aiBox = document.getElementById("aiBox");
+            var selCrop = document.getElementById("selCrop");
+            var selAi = document.getElementById("selAi");
             var shadeTop = document.getElementById("shadeTop");
             var shadeBottom = document.getElementById("shadeBottom");
             var shadeLeft = document.getElementById("shadeLeft");
@@ -944,6 +1100,15 @@
             var hoursMsg = document.getElementById("hoursMsg");
             var hoursSave = document.getElementById("hoursSave");
             var hoursLock = document.getElementById("hoursLock");
+            var aiBtn = document.getElementById("aiRecognize");
+            var aiMsg = document.getElementById("aiMsg");
+            var aiText = document.getElementById("aiText");
+            var aiFoot = document.getElementById("aiFoot");
+            var aiFill = document.getElementById("aiFill");
+            var aiClear = document.getElementById("aiClear");
+            var aiRewind = document.getElementById("aiRewind");
+            // 光标：下一次「填入工时表」从周期里第几个格子开始（0 = 第一天）
+            var aiCursor = 0;
             // 只有「人 + 项目」最新提交的工卡可录入工时，历史工卡只读
             var hoursEditable = true;
             // 当前弹窗对应的工人卡片 / 本次弹窗是否保存过工天
@@ -959,7 +1124,10 @@
             var baseImg = null;
             var angle = 0;
             var workScale = 1;
+            // 两套选区**互相独立**：crop 只给「保存并替换原图」用，aiCrop 只给 AI 识别用
             var crop = { x: 0, y: 0, w: 0, h: 0 };
+            var aiCrop = null;          // null = 还没框过（识别时按整张卡处理）
+            var selMode = "crop";       // "crop" | "ai"：当前在拖哪个框
             var disp = { w: 0, h: 0 };
             var currentId = null;
             var drag = null;
@@ -984,6 +1152,53 @@
                 c.x = Math.max(0, Math.min(c.x, disp.w - c.w));
                 c.y = Math.max(0, Math.min(c.y, disp.h - c.h));
                 return c;
+            }
+
+            /* 画布显示尺寸会变（右边日历加载完、窗口缩放都会让它变）。
+               用之前重新量一次，变了就把两个框按比例缩放，保证框始终贴在图上。 */
+            function syncStageSize() {
+                var w = view.clientWidth;
+                var h = view.clientHeight;
+                if (!w || !h) return false;
+                if (w === disp.w && h === disp.h) return false;
+                var rx = w / (disp.w || w);
+                var ry = h / (disp.h || h);
+                disp = { w: w, h: h };          // 先换成新尺寸，下面夹取才不会被旧尺寸限住
+                crop = clampCrop({ x: crop.x * rx, y: crop.y * ry, w: crop.w * rx, h: crop.h * ry });
+                if (aiCrop) {
+                    aiCrop = clampCrop({
+                        x: aiCrop.x * rx, y: aiCrop.y * ry, w: aiCrop.w * rx, h: aiCrop.h * ry,
+                    });
+                }
+                return true;
+            }
+
+            /* ---------- 两套选区：裁剪框（蓝） 与 AI 识别区（紫） ---------- */
+            function isAiMode() { return selMode === "ai"; }
+
+            function activeRect() {
+                return isAiMode() ? (aiCrop || crop) : crop;
+            }
+
+            function setActiveRect(rect) {
+                if (isAiMode()) {
+                    aiCrop = clampCrop(rect);
+                } else {
+                    crop = clampCrop(rect);
+                }
+            }
+
+            /* 切换当前操作的是哪个框：另一个框变灰、不能拖 */
+            function setSelMode(mode) {
+                selMode = mode === "ai" ? "ai" : "crop";
+                syncStageSize();      // 尺寸变过就先把两个框按比例校正回来
+                selCrop.classList.toggle("active", !isAiMode());
+                selAi.classList.toggle("active", isAiMode());
+                cropBox.classList.toggle("inactive", isAiMode());
+                aiBox.classList.toggle("inactive", !isAiMode());
+                // AI 模式下鼠标变十字：提示可以按住左键在图上画选区（不再预置一个默认框）
+                cropStage.classList.toggle("draw", isAiMode());
+                applyCrop();
             }
 
             function render() {
@@ -1015,26 +1230,43 @@
 
                 disp = { w: view.clientWidth, h: view.clientHeight };
                 crop = { x: 0, y: 0, w: disp.w, h: disp.h };
+                // 旋转 / 换图后画布尺寸变了，AI 识别区跟着夹回图内（没框过就保持没有）
+                if (aiCrop) aiCrop = clampCrop(aiCrop);
                 applyCrop();
             }
 
             function applyCrop() {
+                // 两个框都画出来（未激活的靠 CSS 变灰、不能拖）
                 cropBox.style.left = crop.x + "px";
                 cropBox.style.top = crop.y + "px";
                 cropBox.style.width = crop.w + "px";
                 cropBox.style.height = crop.h + "px";
+                if (aiCrop) {
+                    aiBox.hidden = false;
+                    aiBox.style.left = aiCrop.x + "px";
+                    aiBox.style.top = aiCrop.y + "px";
+                    aiBox.style.width = aiCrop.w + "px";
+                    aiBox.style.height = aiCrop.h + "px";
+                } else {
+                    aiBox.hidden = true;
+                }
 
-                var right = Math.max(0, disp.w - crop.x - crop.w);
-                var bottom = Math.max(0, disp.h - crop.y - crop.h);
-                shadeTop.style.cssText = "left:0;top:0;width:100%;height:" + crop.y + "px";
-                shadeBottom.style.cssText = "left:0;top:" + (crop.y + crop.h) + "px;width:100%;height:" + bottom + "px";
-                shadeLeft.style.cssText = "left:0;top:" + crop.y + "px;width:" + crop.x + "px;height:" + crop.h + "px";
-                shadeRight.style.cssText = "left:" + (crop.x + crop.w) + "px;top:" + crop.y + "px;width:" + right + "px;height:" + crop.h + "px";
+                // 遮罩只跟当前正在操作的那个框走
+                var r = activeRect();
+                var right = Math.max(0, disp.w - r.x - r.w);
+                var bottom = Math.max(0, disp.h - r.y - r.h);
+                shadeTop.style.cssText = "left:0;top:0;width:100%;height:" + r.y + "px";
+                shadeBottom.style.cssText = "left:0;top:" + (r.y + r.h) + "px;width:100%;height:" + bottom + "px";
+                shadeLeft.style.cssText = "left:0;top:" + r.y + "px;width:" + r.x + "px;height:" + r.h + "px";
+                shadeRight.style.cssText = "left:" + (r.x + r.w) + "px;top:" + r.y + "px;width:" + right + "px;height:" + r.h + "px";
 
+                // 图片还没加载好时（刚打开弹窗 / 切换选区模式）没有原图尺寸可显示
+                if (!baseImg || !baseImg.complete) return;
                 var ratio = tmp.width / (disp.w || 1);
                 var work = workScale < 1 ? " · 处理分辨率 " + tmp.width + "×" + tmp.height : "";
+                var label = isAiMode() ? "识别区" : "裁剪后";
                 sizeInfo.textContent = "原图 " + baseImg.naturalWidth + "×" + baseImg.naturalHeight + work
-                    + " · 裁剪后 " + Math.round(crop.w * ratio) + "×" + Math.round(crop.h * ratio) + " 像素";
+                    + " · " + label + " " + Math.round(r.w * ratio) + "×" + Math.round(r.h * ratio) + " 像素";
             }
 
             function setAngle(value) {
@@ -1053,6 +1285,20 @@
                 return fields.length ? "· " + fields.join(" · ") : "";
             }
 
+            /* 弹窗打开时锁住背景滚动；关闭时恢复。
+               顺手把滚动条宽度记到 --scrollbar-width，页面不会因为滚动条消失而左右跳。 */
+            function lockPageScroll(on) {
+                var root = document.documentElement;
+                if (on) {
+                    var barWidth = window.innerWidth - root.clientWidth;
+                    root.style.setProperty("--scrollbar-width", (barWidth > 0 ? barWidth : 0) + "px");
+                    root.classList.add("modal-open");
+                } else {
+                    root.classList.remove("modal-open");
+                    root.style.removeProperty("--scrollbar-width");
+                }
+            }
+
             function openEditor(btn) {
                 currentId = btn.getAttribute("data-id");
                 currentCard = btn.closest("section.person");
@@ -1066,7 +1312,13 @@
                 angleVal.textContent = "0°";
                 sizeInfo.textContent = "加载中...";
                 saveBtn.disabled = true;
+                // 先清掉上一张卡的图片引用，applyCrop 才知道「现在还没有图」，不会去读尺寸
+                baseImg = null;
+                // 换一张卡：AI 识别区跟上一张卡没关系，重置掉（裁剪框由 render 重置）
+                aiCrop = null;
+                setSelMode("crop");
                 modal.classList.add("open");
+                lockPageScroll(true);
 
                 hoursMsg.textContent = "";
                 hoursMsg.className = "msg";
@@ -1076,6 +1328,8 @@
                 hoursEditable = btn.getAttribute("data-latest") !== "0";
                 hoursLock.hidden = hoursEditable;
                 hoursSave.disabled = !hoursEditable;
+                aiBtn.disabled = !hoursEditable;
+                resetAI();      // 换一张卡就把上次识别的文本清掉
                 if (!hoursEditable) {
                     hoursMsg.textContent = "历史工卡：仅供查看，不能保存工天数据";
                     hoursMsg.className = "msg warn";
@@ -1102,6 +1356,7 @@
                 hoursSaved = false;
                 currentCard = null;
                 modal.classList.remove("open");
+                lockPageScroll(false);
                 baseImg = null;
                 currentId = null;
                 saveBtn.disabled = false;
@@ -1139,7 +1394,9 @@
             }
 
             function selectAll() {
-                crop = { x: 0, y: 0, w: disp.w, h: disp.h };
+                syncStageSize();
+                // 「全选」只作用于当前正在操作的那个框，另一个不动
+                setActiveRect({ x: 0, y: 0, w: disp.w, h: disp.h });
                 applyCrop();
             }
 
@@ -1304,6 +1561,46 @@
                     });
                 }
                 updateSummary();
+                aiCursor = Math.min(aiCursor, calendarCells().length);
+                paintCursor();      // 日历重建后把光标标记画回去
+            }
+
+            /* ---------- 填入光标：下次「填入工时表」从这一格开始 ---------- */
+            function calendarCells() {
+                var cells = [];
+                hoursScroll.querySelectorAll("input[data-date]").forEach(function (input) {
+                    var cell = input.closest(".cal-cell");
+                    if (cell) cells.push(cell);
+                });
+                return cells;
+            }
+
+            function cursorDate() {
+                var cells = calendarCells();
+                var cell = cells[Math.min(aiCursor, cells.length - 1)];
+                if (!cell) return "";
+                var input = cell.querySelector("input[data-date]");
+                return input ? input.getAttribute("data-date") : "";
+            }
+
+            function paintCursor() {
+                calendarCells().forEach(function (cell) { cell.classList.remove("ai-cursor"); });
+                var cells = calendarCells();
+                if (aiCursor >= cells.length) return;      // 已经填到周期最后一天后面了
+                cells[aiCursor].classList.add("ai-cursor");
+            }
+
+            /* index = 下一个要填的格子下标；notify = 是否提示一句 */
+            function setCursor(index, notify) {
+                var cells = calendarCells();
+                aiCursor = Math.max(0, Math.min(index, cells.length));
+                paintCursor();
+                if (notify) {
+                    aiMsg.textContent = aiCursor >= cells.length
+                        ? "光标已移到末尾：这个周期没有更多格子了"
+                        : "下次从 " + cursorDate() + " 开始填入";
+                    aiMsg.className = "ai-msg";
+                }
             }
 
             function readInputValue(input) {
@@ -1351,6 +1648,7 @@
                 }
                 periodMonth = shiftMonth(periodMonth, delta);
                 renderCalendar();
+                resetAI();      // 换周期后「第一天」也变了，旧的识别文本清掉
             }
 
             function loadHours(id) {
@@ -1416,11 +1714,197 @@
                     });
             }
 
+            /* ---------- AI 识别：框选 → 读出数字 → 可编辑 → 依次填格 ---------- */
+
+            /* 把 **AI 识别区**（紫色框）那一块导出成 JPEG data URL。
+               注意：这里刻意不读 crop —— 裁剪框只归「保存并替换原图」用，两者互不影响。 */
+            function cropToDataUrl() {
+                if (!baseImg) return "";
+                var region = aiCrop || { x: 0, y: 0, w: disp.w, h: disp.h };   // 没框过就整张
+                var ratio = tmp.width / (disp.w || 1);
+                var sx = Math.round(region.x * ratio);
+                var sy = Math.round(region.y * ratio);
+                var sw = Math.max(1, Math.round(region.w * ratio));
+                var sh = Math.max(1, Math.round(region.h * ratio));
+
+                var out = document.createElement("canvas");
+                out.width = sw;
+                out.height = sh;
+                var outCtx = out.getContext("2d");
+                outCtx.fillStyle = "#ffffff";
+                outCtx.fillRect(0, 0, sw, sh);
+                outCtx.drawImage(tmp, sx, sy, sw, sh, 0, 0, sw, sh);
+                return out.toDataURL("image/jpeg", 0.9);
+            }
+
+            function resetAI() {
+                aiText.value = "";
+                aiText.hidden = true;
+                aiFoot.hidden = true;
+                aiMsg.textContent = "";
+                aiMsg.className = "ai-msg";
+                aiCursor = 0;      // 换卡 / 换周期：光标回到周期第一天
+                paintCursor();
+            }
+
+            function showAI(text, message, ok) {
+                aiText.value = text || "";
+                aiText.hidden = false;
+                aiFoot.hidden = false;
+                aiMsg.textContent = message || "";
+                aiMsg.className = ok === false ? "ai-msg error" : "ai-msg success";
+            }
+
+            /* 识别裁剪框里的区域：AI 只按顺序读数字，返回逗号分隔文本 */
+            function aiRecognize() {
+                if (!currentId) return;
+                if (!hoursEditable) {
+                    showAI("", "历史工卡不能录入，识别也没有意义", false);
+                    return;
+                }
+                var dataUrl = cropToDataUrl();
+                if (!dataUrl) {
+                    showAI("", "图片还没加载好，稍等一下再试", false);
+                    return;
+                }
+                aiBtn.disabled = true;
+                aiBtn.textContent = "识别中...";
+                aiMsg.textContent = "";
+
+                fetch("/api/submission/" + currentId + "/ai-recognize/", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-CSRFToken": getCookie("csrftoken")
+                    },
+                    body: JSON.stringify({ image: dataUrl, period_month: periodMonth })
+                })
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        if (!data.ok) {
+                            showAI("", data.message || "识别失败", false);
+                            return;
+                        }
+                        var tip = "识别到 " + data.count + " 项，核对后点「填入工时表」";
+                        tip += aiCursor > 0
+                            ? "（从光标处 " + cursorDate() + " 开始，一格一个数）"
+                            : "（从周期第一天开始，一格一个数）";
+                        if (!aiCrop) tip += " · 识别的是整张卡，框选会更准";
+                        if ((data.skipped || []).length) {
+                            tip += "；跳过 " + data.skipped.join("、");
+                        }
+                        showAI(data.text, tip, true);
+                        aiText.focus();
+                    })
+                    .catch(function () {
+                        showAI("", "网络错误，请重试", false);
+                    })
+                    .finally(function () {
+                        aiBtn.disabled = !hoursEditable;
+                        aiBtn.textContent = "AI 识别选区";
+                    });
+            }
+
+            /* 把编辑好的逗号分隔文本拆成数字；读不出来的按 0 占位（丢掉会让后面串位） */
+            function splitAIText(text) {
+                var items = [];
+                var bad = [];
+                String(text || "").split(/[,，、;；|\s]+/).forEach(function (token) {
+                    token = String(token || "").trim()
+                        .replace(/[０-９]/g, function (ch) {
+                            return String.fromCharCode(ch.charCodeAt(0) - 65248);   // 全角数字
+                        })
+                        .replace(/[。．]/g, ".");
+                    if (!token) return;
+                    token = token.replace(/(小时|hours|hrs|h)$/i, "");   // 去掉单位后缀
+                    // 支持 "10+3" 这种算式（相加）
+                    var total = 0, ok = true;
+                    token.split("+").forEach(function (part) {
+                        var v = parseFloat(part);
+                        if (isNaN(v)) { ok = false; return; }
+                        total += v;
+                    });
+                    if (!ok || total < 0) {
+                        if (token) bad.push(token);
+                        items.push(0);      // 占位，保住第 N 个 = 第 N 天
+                        return;
+                    }
+                    items.push(Math.round(Math.min(total, 24) * 100) / 100);
+                });
+                splitAIText.bad = bad;
+                return items;
+            }
+
+            function aiFillTable() {
+                if (!hoursEditable) {
+                    aiMsg.textContent = "历史工卡不能录入";
+                    aiMsg.className = "ai-msg error";
+                    return;
+                }
+                var items = splitAIText(aiText.value);
+                if (!items.length) {
+                    aiMsg.textContent = "没有可填入的数字，先识别或直接输入（逗号分隔）";
+                    aiMsg.className = "ai-msg error";
+                    return;
+                }
+                var inputs = hoursScroll.querySelectorAll("input[data-date]");
+                if (!inputs.length) {
+                    aiMsg.textContent = "日历还没加载好";
+                    aiMsg.className = "ai-msg error";
+                    return;
+                }
+                // 从光标那格开始填（不是每次都从第一天）
+                var start = Math.min(Math.max(aiCursor, 0), inputs.length);
+                if (start >= inputs.length) {
+                    aiMsg.textContent = "光标已经在周期最后一天之后了，点某个格子把光标移过去再填";
+                    aiMsg.className = "ai-msg error";
+                    return;
+                }
+                var filled = 0;
+                items.forEach(function (hours, index) {
+                    var input = inputs[start + index];
+                    if (!input) return;      // 数字比剩余格子多就丢掉多余的
+                    input.value = hours;
+                    var cell = input.closest(".cal-cell");
+                    if (cell) cell.classList.add("ai-filled");   // 黄底：AI 填的，请核对
+                    filled++;
+                });
+                updateSummary();
+                setCursor(start + filled);      // 光标停在下一次要填的格子
+                var tip = "已填入 " + filled + " 天（"
+                    + inputs[start].getAttribute("data-date") + " 起，黄底格子，请核对）";
+                if (items.length > filled) {
+                    tip += "；多出 " + (items.length - filled) + " 个数字没地方填";
+                }
+                if ((splitAIText.bad || []).length) {
+                    tip += "；读不出的按 0 占位：" + splitAIText.bad.join("、");
+                }
+                tip += aiCursor >= inputs.length
+                    ? "；已填到最后一天"
+                    : "；下次从 " + cursorDate() + " 接着填";
+                aiMsg.textContent = tip;
+                aiMsg.className = "ai-msg success";
+            }
+
             hoursScroll.addEventListener("input", updateSummary);
             hoursScroll.addEventListener("change", updateSummary);
+            // 点格子（不要点在输入框里）把光标移过去：下次识别就从这里开始填
+            hoursScroll.addEventListener("click", function (e) {
+                if (!hoursEditable) return;
+                if (e.target && String(e.target.tagName).toUpperCase() === "INPUT") return;
+                var cell = e.target && e.target.closest ? e.target.closest(".cal-cell") : null;
+                if (!cell) return;
+                var index = calendarCells().indexOf(cell);
+                if (index < 0) return;      // 空白占位格没有输入框
+                setCursor(index, true);
+            });
             periodPrev.addEventListener("click", function () { switchPeriod(-1); });
             periodNext.addEventListener("click", function () { switchPeriod(1); });
             hoursSave.addEventListener("click", saveHours);
+            aiBtn.addEventListener("click", aiRecognize);
+            aiFill.addEventListener("click", aiFillTable);
+            aiClear.addEventListener("click", function () { resetAI(); });
+            aiRewind.addEventListener("click", function () { setCursor(0, true); });
 
             document.querySelectorAll(".js-open-editor").forEach(function (btn) {
                 btn.addEventListener("click", function () { openEditor(btn); });
@@ -1435,12 +1919,29 @@
                 if (e.key === "Escape" && modal.classList.contains("open")) closeEditor();
             });
 
+            selCrop.addEventListener("click", function () { setSelMode("crop"); });
+            selAi.addEventListener("click", function () { setSelMode("ai"); });
+
+            /* 画布显示尺寸变了（窗口缩放、右边日历加载完撑开布局）就重画选区，别让框和图错位 */
+            function onStageResize() {
+                if (!baseImg) return;
+                if (syncStageSize()) applyCrop();
+            }
+            window.addEventListener("resize", onStageResize);
+            if (window.ResizeObserver) {
+                new window.ResizeObserver(onStageResize).observe(view);
+            }
+
             document.querySelectorAll(".toolbar button").forEach(function (btn) {
                 btn.addEventListener("click", function () {
                     var act = btn.getAttribute("data-act");
                     if (act === "rotate-left") setAngle(angle - 90);
                     if (act === "rotate-right") setAngle(angle + 90);
-                    if (act === "reset") setAngle(0);
+                    if (act === "reset") {
+                        setAngle(0);
+                        // AI 模式下「复位」顺便清掉识别区，好重新画一个
+                        if (isAiMode()) { aiCrop = null; applyCrop(); }
+                    }
                     if (act === "select-all") selectAll();
                 });
             });
@@ -1449,51 +1950,122 @@
                 setAngle(parseInt(angleRange.value, 10) || 0);
             });
 
-            cropBox.addEventListener("pointerdown", function (e) {
-                if (!baseImg) return;
-                var handle = e.target.closest(".handle");
-                drag = {
-                    type: handle ? "resize" : "move",
-                    dir: handle ? handle.getAttribute("data-dir") : "",
-                    sx: e.clientX,
-                    sy: e.clientY,
-                    start: { x: crop.x, y: crop.y, w: crop.w, h: crop.h }
-                };
-                cropBox.setPointerCapture(e.pointerId);
-                e.preventDefault();
+            /* 拖拽 / 缩放：哪个框被拖就改哪个矩形（裁剪框 ↔ AI 识别区互不影响） */
+            [cropBox, aiBox].forEach(function (box) {
+                var forAi = box === aiBox;
+
+                box.addEventListener("pointerdown", function (e) {
+                    if (!baseImg) return;
+                    syncStageSize();      // 拖之前先对着当前画布尺寸校正
+                    var rect = forAi ? (aiCrop || crop) : crop;
+                    var handle = e.target.closest(".handle");
+                    drag = {
+                        forAi: forAi,
+                        type: handle ? "resize" : "move",
+                        dir: handle ? handle.getAttribute("data-dir") : "",
+                        sx: e.clientX,
+                        sy: e.clientY,
+                        start: { x: rect.x, y: rect.y, w: rect.w, h: rect.h }
+                    };
+                    box.setPointerCapture(e.pointerId);
+                    e.preventDefault();
+                });
+
+                box.addEventListener("pointermove", function (e) {
+                    if (!drag || drag.forAi !== forAi) return;
+                    var dx = e.clientX - drag.sx;
+                    var dy = e.clientY - drag.sy;
+                    var s = drag.start;
+                    var c = { x: s.x, y: s.y, w: s.w, h: s.h };
+
+                    if (drag.type === "move") {
+                        c.x = s.x + dx;
+                        c.y = s.y + dy;
+                    } else {
+                        var dir = drag.dir;
+                        if (dir.indexOf("e") >= 0) c.w = s.w + dx;
+                        if (dir.indexOf("s") >= 0) c.h = s.h + dy;
+                        if (dir.indexOf("w") >= 0) { c.x = s.x + dx; c.w = s.w - dx; }
+                        if (dir.indexOf("n") >= 0) { c.y = s.y + dy; c.h = s.h - dy; }
+                        if (c.w < MIN_SIZE) {
+                            c.w = MIN_SIZE;
+                            if (dir.indexOf("w") >= 0) c.x = s.x + s.w - MIN_SIZE;
+                        }
+                        if (c.h < MIN_SIZE) {
+                            c.h = MIN_SIZE;
+                            if (dir.indexOf("n") >= 0) c.y = s.y + s.h - MIN_SIZE;
+                        }
+                    }
+                    if (forAi) {
+                        aiCrop = clampCrop(c);
+                    } else {
+                        crop = clampCrop(c);
+                    }
+                    applyCrop();
+                });
+
+                ["pointerup", "pointercancel"].forEach(function (type) {
+                    box.addEventListener(type, function () { drag = null; });
+                });
             });
 
-            cropBox.addEventListener("pointermove", function (e) {
-                if (!drag) return;
-                var dx = e.clientX - drag.sx;
-                var dy = e.clientY - drag.sy;
-                var s = drag.start;
-                var c = { x: s.x, y: s.y, w: s.w, h: s.h };
+            /* ---------- 按住左键在图上拖 → 直接画出选区 ----------
+               画的是「当前模式」那个框：AI 模式画紫色识别区，裁剪模式画蓝色裁剪框。
+               画完照样能拖着挪、拉角缩放。 */
+            var draw = null;
 
-                if (drag.type === "move") {
-                    c.x = s.x + dx;
-                    c.y = s.y + dy;
-                } else {
-                    var dir = drag.dir;
-                    if (dir.indexOf("e") >= 0) c.w = s.w + dx;
-                    if (dir.indexOf("s") >= 0) c.h = s.h + dy;
-                    if (dir.indexOf("w") >= 0) { c.x = s.x + dx; c.w = s.w - dx; }
-                    if (dir.indexOf("n") >= 0) { c.y = s.y + dy; c.h = s.h - dy; }
-                    if (c.w < MIN_SIZE) {
-                        c.w = MIN_SIZE;
-                        if (dir.indexOf("w") >= 0) c.x = s.x + s.w - MIN_SIZE;
-                    }
-                    if (c.h < MIN_SIZE) {
-                        c.h = MIN_SIZE;
-                        if (dir.indexOf("n") >= 0) c.y = s.y + s.h - MIN_SIZE;
-                    }
-                }
-                crop = clampCrop(c);
+            function stagePoint(e) {
+                var box = cropStage.getBoundingClientRect();
+                return { x: e.clientX - box.left, y: e.clientY - box.top };
+            }
+
+            function setRect(rect, forAi) {
+                // 画图过程中不套 MIN_SIZE，让框跟着鼠标从 0 长出来
+                if (forAi) { aiCrop = rect; } else { crop = rect; }
+            }
+
+            cropStage.addEventListener("pointerdown", function (e) {
+                if (!baseImg) return;
+                if (e.button !== undefined && e.button !== 0) return;         // 只认左键
+                if (e.target && e.target.closest && e.target.closest(".crop-box")) return;  // 拖框的事交给框自己
+                syncStageSize();
+                var p = stagePoint(e);
+                draw = {
+                    forAi: isAiMode(),
+                    x1: p.x, y1: p.y,
+                    prev: isAiMode() ? aiCrop : crop      // 画得太小（等于点一下）就还原成这个
+                };
+                setRect({ x: p.x, y: p.y, w: 0, h: 0 }, draw.forAi);
+                cropStage.setPointerCapture(e.pointerId);
+                e.preventDefault();
+                applyCrop();
+            });
+
+            cropStage.addEventListener("pointermove", function (e) {
+                if (!draw) return;
+                var p = stagePoint(e);
+                var x = Math.max(0, Math.min(Math.min(draw.x1, p.x), disp.w));
+                var y = Math.max(0, Math.min(Math.min(draw.y1, p.y), disp.h));
+                var x2 = Math.max(0, Math.min(Math.max(draw.x1, p.x), disp.w));
+                var y2 = Math.max(0, Math.min(Math.max(draw.y1, p.y), disp.h));
+                setRect({ x: x, y: y, w: x2 - x, h: y2 - y }, draw.forAi);
                 applyCrop();
             });
 
             ["pointerup", "pointercancel"].forEach(function (type) {
-                cropBox.addEventListener(type, function () { drag = null; });
+                cropStage.addEventListener(type, function () {
+                    if (!draw) return;
+                    var forAi = draw.forAi;
+                    var rect = forAi ? aiCrop : crop;
+                    // 只是点了一下（没真画）→ 恢复原来的框
+                    if (!rect || rect.w < 8 || rect.h < 8) {
+                        setRect(draw.prev, forAi);
+                    } else {
+                        setRect(clampCrop(rect), forAi);
+                    }
+                    draw = null;
+                    applyCrop();
+                });
             });
         })();
     </script>

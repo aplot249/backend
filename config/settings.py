@@ -116,3 +116,19 @@ SIMPLEUI_ICON = {
 }
 SIMPLEUI_HOME_QUICK = True
 SIMPLEUI_HOME_ACTION = True
+
+# ---------- AI 工卡识别（整理页「AI 识别」按钮用） ----------
+# 任何 OpenAI 兼容的「视觉模型」接口都可以，用环境变量配置（不配则按钮提示未配置）：
+#   set AI_VISION_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1   （阿里云百炼，模型 qwen-vl-max）
+#   set AI_VISION_API_KEY=sk-xxxx
+#   set AI_VISION_MODEL=qwen-vl-max
+# 其他可选：智谱 https://open.bigmodel.cn/api/paas/v4 (glm-4v-plus)、
+#          OpenAI https://api.openai.com/v1 (gpt-4o-mini)、
+#          Gemini https://generativelanguage.googleapis.com/v1beta/openai (gemini-2.0-flash)
+AI_VISION_BASE_URL = os.getenv("AI_VISION_BASE_URL", "https://open.bigmodel.cn/api/paas/v4").rstrip("/")
+AI_VISION_API_KEY = os.getenv("AI_VISION_API_KEY", "9cd15fc5535c49729d9180ef53f88492.Svvy0VkREsZUdce4")
+AI_VISION_MODEL = os.getenv("AI_VISION_MODEL", "glm-4.6v")
+AI_VISION_TIMEOUT = int(os.getenv("AI_VISION_TIMEOUT", "180"))
+# 智谱 GLM-4.5V / 4.6V 是推理模型，默认会先「想」很久才回答（读一张卡可能 90 秒以上）。
+# 数格子这种任务不需要推理，默认关掉思考（实测快很多）；想让它推理就设 AI_VISION_DISABLE_THINKING=0
+AI_VISION_DISABLE_THINKING = os.getenv("AI_VISION_DISABLE_THINKING", "1") == "1"
