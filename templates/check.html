@@ -238,6 +238,20 @@
         .day .h { color: #667eea; font-weight: 600; }
         .no-hours { font-size: 12px; color: #aaa; margin-top: 8px; }
 
+        /* 工卡图片（点一下看原图） */
+        .card-shot { margin-top: 10px; }
+        .card-shot .shot-title { font-size: 11px; color: #aaa; margin-bottom: 5px; }
+        .card-shot .shot-link { display: block; }
+        .card-shot img {
+            display: block;
+            width: 100%;
+            max-height: 240px;
+            object-fit: contain;
+            background: #f7f8ff;
+            border: 1px solid #eceefb;
+            border-radius: 8px;
+        }
+
         .readonly-note {
             flex: none;
             margin-top: 8px;
@@ -452,6 +466,31 @@
             return groups;
         }
 
+        function renderCardShot(item) {
+            /* 这次提交的那张工卡图片：点一下看原图 */
+            var shot = el("div", "card-shot");
+            shot.appendChild(el("div", "shot-title", "Work card"));
+
+            var link = document.createElement("a");
+            link.className = "shot-link";
+            link.href = item.card_image_url;
+            link.target = "_blank";
+            link.rel = "noopener";
+
+            var img = document.createElement("img");
+            img.src = item.card_image_url;
+            img.alt = "Work card";
+            img.loading = "lazy";
+            // 图片加载失败（文件被清理 / 地址失效）时给一句说明，不留空白框
+            img.addEventListener("error", function () {
+                link.replaceWith(el("div", "no-hours", "Work card image is not available."));
+            });
+            link.appendChild(img);
+
+            shot.appendChild(link);
+            return shot;
+        }
+
         function renderProject(item) {
             var card = el("div", "proj");
 
@@ -474,6 +513,7 @@
                 card.appendChild(el("div", "no-hours",
                     item.is_vacation ? "On leave, no work hours recorded."
                                      : "No work hours recorded for this project yet."));
+                if (item.card_image_url) card.appendChild(renderCardShot(item));
                 return card;
             }
 
@@ -491,6 +531,9 @@
                 block.appendChild(wrap);
                 card.appendChild(block);
             });
+
+            // 工卡图片放在工时下方，工人可以对照着核对
+            if (item.card_image_url) card.appendChild(renderCardShot(item));
 
             return card;
         }

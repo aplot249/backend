@@ -155,6 +155,16 @@ def _person_payload(person):
     }
 
 
+def _card_image_url(submission):
+    """工卡图片地址；没图或文件不在了就返回空字符串（前端会显示文字提示）。"""
+    if not submission or not submission.card_image:
+        return ""
+    try:
+        return submission.card_image.url
+    except (ValueError, OSError):
+        return ""
+
+
 @require_GET
 def check_search(request):
     """查询页的姓名联想（大小写、空格不敏感）。"""
@@ -297,6 +307,8 @@ def check_hours(request):
                 "submitted_at": submission.created_at.strftime("%Y-%m-%d %H:%M")
                 if submission
                 else "",
+                # 这次提交的那张工卡图片（查询页在项目工时下方直接显示给工人看）
+                "card_image_url": _card_image_url(submission),
                 "total_hours": float(sub_total),
                 "total_hours_label": _format_hours(sub_total),
                 "worked_days": len(rows),
