@@ -1,0 +1,62 @@
+{% extends "admin/base_site.html" %}
+
+{% block title %}工卡数据整理 | {{ site_title|default:"Django site admin" }}{% endblock %}
+
+{% block extrastyle %}{{ block.super }}
+<style>
+    /* 整理页是完整的一整页（自带样式 / 脚本），这里用 iframe 原样嵌进 admin 框架，
+       高度按可视区剩下的空间算，admin 自己的头部 / 侧栏都还在。 */
+    .summary-bar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin: 0 0 8px;
+        font-size: 13px;
+        color: #666;
+    }
+    .summary-bar .btn {
+        display: inline-block;
+        padding: 6px 12px;
+        background: #417505;
+        color: #fff;
+        border-radius: 4px;
+        text-decoration: none;
+        font-size: 13px;
+    }
+    .summary-bar .btn:hover { background: #2b5903; }
+    .summary-bar .btn.plain {
+        background: #f4f6ff;
+        color: #4a54a8;
+        border: 1px solid #d9dcf0;
+    }
+    #summaryFrame {
+        display: block;
+        width: 100%;
+        height: calc(100vh - 190px);
+        min-height: 620px;
+        border: 0;
+        background: #fff;
+        border-radius: 6px;
+        box-shadow: 0 0 0 1px #e6e8ef;
+    }
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">首页</a>
+    &rsaquo; 工卡数据整理
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="summary-bar">
+    <span>按考勤周期整理工卡、录入工时、导出 Excel / 工卡 PDF（口径与 /summary/ 完全一致）</span>
+    <a class="btn" href="{{ summary_url }}" target="_blank" rel="noopener">新窗口打开</a>
+    <a class="btn plain" href="{% url 'admin:index' %}">&larr; 回后台首页</a>
+</div>
+<iframe id="summaryFrame" src="{{ summary_url }}" title="工卡数据整理"></iframe>
+{% endblock %}
+
+{% block sidebar %}{% endblock %}

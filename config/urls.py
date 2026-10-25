@@ -8,6 +8,8 @@ from django.views.static import serve
 from formapp import views
 
 urlpatterns = [
+    # 后台里的「工卡数据整理」页面（嵌在 admin 框架里），要在 admin/ 之前才不会被它吃掉
+    path("admin/summary/", views.summary_admin_view, name="admin-summary"),
     path("admin/", admin.site.urls),
     path("", views.form_view, name="form"),
     path("api/search-name/", views.search_name, name="search-name"),

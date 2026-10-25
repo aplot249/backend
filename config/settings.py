@@ -117,6 +117,22 @@ SIMPLEUI_ICON = {
 SIMPLEUI_HOME_QUICK = True
 SIMPLEUI_HOME_ACTION = True
 
+# 左侧菜单里挂一个「工卡数据整理」入口（点开后是后台内的一个标签页，iframe 加载 /summary/）
+#   system_keep = True：保留系统自动生成的「姓名库 / 项目库 / 提交记录」等菜单，只在后面追加
+#   不带 models 的菜单项就是一个直达链接（simpleui 会用 iframe 打开它的 url）
+SIMPLEUI_CONFIG = {
+    "system_keep": True,
+    "menus": [
+        {
+            "name": "工卡数据整理",
+            "icon": "fa fa-table",
+            "url": "/summary/",
+        },
+    ],
+}
+# 想让「登录后台就直达整理页」，把下面这行的注释去掉（首页标签页会换成整理页）：
+# SIMPLEUI_HOME_PAGE = "/summary/"
+
 # ---------- AI 工卡识别（整理页「AI 识别」按钮用） ----------
 # 任何 OpenAI 兼容的「视觉模型」接口都可以，用环境变量配置（不配则按钮提示未配置）：
 #   set AI_VISION_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1   （阿里云百炼，模型 qwen-vl-max）

@@ -16,6 +16,7 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.core.files.storage import default_storage
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
 from openpyxl import load_workbook
@@ -1356,7 +1357,27 @@ def _export_periods():
 
 
 @staff_member_required
+def summary_admin_view(request):
+    """admin 后台里的「工卡数据整理」入口：把 /summary/ **整页嵌进** admin 的页面框架。
+
+    入口有两处：admin 首页的「工卡统计」卡片、右上角顶部链接。
+    `?period=YYYY-MM` 会原样传给整理页，方便直接从后台进到某个周期。
+    """
+    period = (request.GET.get("period") or "").strip()
+    query = f"?period={period}" if re.fullmatch(r"\d{4}-\d{2}", period) else ""
+    return render(
+        request,
+        "admin/summary_embed.html",
+        {
+            "title": "工卡数据整理",
+            "summary_url": f"/summary/{query}",
+        },
+    )
+
+
+@staff_member_required
 @ensure_csrf_cookie
+@xframe_options_sameorigin   # 允许被 admin 后台的 /admin/summary/ 页面用 iframe 嵌进去
 def summary_view(request):
     """数据整理页：**只统计所选考勤周期**（默认最近提交过工卡的周期）。
 

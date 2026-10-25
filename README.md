@@ -283,6 +283,27 @@ python import_attendance.py --file 路径.xlsx
 
 ## 数据整理页（/summary/）
 
+### 从 admin 后台直接进入
+
+后台用的是 **SimpleUI** 主题，左侧菜单里已经挂了一个入口（点开是后台内的一个标签页，用 iframe 加载整理页）：
+
+```python
+# config/settings.py
+SIMPLEUI_CONFIG = {
+    "system_keep": True,          # 保留系统自动生成的菜单（姓名库 / 项目库 / 提交记录…）
+    "menus": [
+        {"name": "工卡数据整理", "icon": "fa fa-table", "url": "/summary/"},
+    ],
+}
+```
+
+- 不带 `models` 的菜单项就是**直达链接**（SimpleUI 会用 iframe 打开它的 url）
+- 想「登录后台就直达整理页」：再加一行 `SIMPLEUI_HOME_PAGE = "/summary/"`（首页标签页会被换成整理页）
+- 另外还有个**整页版** `/admin/summary/`：把整理页嵌在 admin 页面框架里（`templates/admin/summary_embed.html`），
+  支持 `?period=YYYY-MM` 直接进到某个周期，未登录会跳后台登录
+- 能让 iframe 正常工作的关键：`summary_view` 上加了 `@xframe_options_sameorigin`
+  （项目开了 `XFrameOptionsMiddleware`，默认是 `DENY`，不加会被浏览器拦掉）
+
 ### AI 识别工时（框选 → 逗号文本 → 依次填表）
 
 **为什么要框选**：整张卡一起识别时，AI 要同时猜日期和工时，容易错；改成你框住工时那一列，
