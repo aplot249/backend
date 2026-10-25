@@ -63,6 +63,16 @@
         }
         .search .field-block { position: relative; margin-bottom: 8px; }
         .search .field-block:last-of-type { margin-bottom: 0; }
+        .field-block > select {
+            width: 100%;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-size: 15px;
+            background: #fff;
+            font-family: inherit;
+            color: #333;
+        }
         .search-row { display: flex; gap: 8px; }
         .search-row input, .field-block > input {
             flex: 1;
@@ -326,6 +336,15 @@
                 </div>
             </div>
 
+            <div class="field-block">
+                <label for="period">Attendance period</label>
+                <select id="period" title="Each period runs from the 21st of last month to the 20th of this month. A card belongs to the month it was submitted.">
+                    {% for item in periods %}
+                    <option value="{{ item.key }}" {% if item.key == default_period %}selected{% endif %}>{{ item.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
             <div class="hint">Both must match the same person. Case and spaces are ignored.</div>
         </div>
 
@@ -333,7 +352,7 @@
             <div class="tip">Enter your name and your employee No. (or passport No.), then tap Search.</div>
         </div>
 
-        <div class="readonly-note">Only the latest submitted work card of each project is shown. Read only.</div>
+        <div class="readonly-note">Only the latest card of each project <b>within the selected period</b> is shown. Read only.</div>
     </div>
 
     <script>
@@ -352,6 +371,7 @@
         var box = document.getElementById("nameSuggest");
         var result = document.getElementById("result");
         var searchBtn = document.getElementById("searchBtn");
+        var periodSelect = document.getElementById("period");
         // 从联想 / 候选人列表里选中的精确姓名
         var pickedName = "";
 
@@ -500,7 +520,7 @@
             card.appendChild(head);
 
             var meta = el("div", "proj-meta");
-            var metaText = "Latest card: " + (item.submitted_at || "-")
+            var metaText = "Latest card this period: " + (item.submitted_at || "-")
                 + " · " + item.worked_days + " day(s) with hours";
             meta.appendChild(document.createTextNode(metaText));
             if (item.is_vacation) {
@@ -603,6 +623,13 @@
             chips.appendChild(projChip);
             worker.appendChild(chips);
 
+            var periodChip = el("span", "chip");
+            periodChip.appendChild(document.createTextNode("Period: "));
+            var pb2 = document.createElement("b");
+            pb2.textContent = data.period_label || (periodSelect.value || "-");
+            periodChip.appendChild(pb2);
+            chips.appendChild(periodChip);
+
             var total = el("div", "total");
             total.appendChild(document.createTextNode("Total hours: "));
             var tb = document.createElement("b");
@@ -647,7 +674,8 @@
 
             // 姓名（选中联想时用精确姓名）+ 工号 / 护照号 一起提交，后端双项核对
             var url = "/api/check-hours/?name=" + encodeURIComponent(pickedName || name)
-                + "&code=" + encodeURIComponent(code);
+                + "&code=" + encodeURIComponent(code)
+                + "&period=" + encodeURIComponent(periodSelect.value);
 
             searchBtn.disabled = true;
             searchBtn.textContent = "...";

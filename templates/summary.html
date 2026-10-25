@@ -71,6 +71,20 @@
         .export-bar button:hover { background: #f4f6ff; }
         .export-bar button:disabled { opacity: 0.6; cursor: not-allowed; }
         .export-bar.pdf-bar { margin-top: 8px; }
+        /* 统计周期：和导出区分区开，字号大一点 */
+        .export-bar.period-bar {
+            margin-bottom: 12px;
+            padding: 10px 14px;
+            background: #f6f4ff;
+            border: 1px solid #ded7f7;
+        }
+        .export-bar.period-bar > span:first-child {
+            font-size: 14px;
+            font-weight: 600;
+            color: #4a54a8;
+        }
+        .export-bar.period-bar select { font-size: 13px; font-weight: 600; }
+        .export-bar.period-bar .pdf-tip { color: #6b6790; }
         .export-bar .pdf-tip { font-size: 12px; opacity: 0.9; }
         .filter-bar {
             display: flex;
@@ -797,9 +811,25 @@
     <div class="wrap">
         <div class="page-head">
             <h1>数据整理页</h1>
+            <form class="export-bar period-bar" method="get" action="/summary/" id="periodForm">
+                <span>统计周期</span>
+                <select name="period" title="工卡属于哪个周期，按提交时间所在月份判定"
+                        onchange="document.getElementById('periodForm').submit()">
+                    {% for item in periods %}
+                    <option value="{{ item.key }}" {% if item.key == period %}selected{% endif %}>{{ item.label }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit">切换</button>
+                <span class="pdf-tip">
+                    本页的人数 / 已提交 / 未提交 / 累计工时、以及下面的导出，<b>都只算这个周期</b>的工卡 ·
+                    本期共 {{ period_card_count }} 张卡
+                </span>
+            </form>
+
             <p class="sub">
                 以「姓名库」为基准核对每人提交情况；同一人若为多个项目提交，按项目左右分列展示，
                 每列内多次提交全部列出，最新一次排在最上方并高亮标注。
+                <b>工卡属于哪个周期按「提交时间所在月份」判定</b>，换上面的下拉可以看别的周期。
             </p>
             <div class="stats">
                 <span class="stat"><b>{{ total }}</b>姓名库人数</span>

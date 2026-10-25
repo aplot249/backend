@@ -105,7 +105,14 @@ def check_view(request):
     /check/ 始终可访问；首页 / 是否展示它由「系统开关」决定。
     """
     return render(
-        request, "check.html", {"form_enabled": SystemSetting.get_setting().form_enabled}
+        request,
+        "check.html",
+        {
+            "form_enabled": SystemSetting.get_setting().form_enabled,
+            # 工人可选周期：默认当前周期（按今天所在月份），只看这个周期的工卡
+            "periods": _export_periods(),
+            "default_period": _payroll_month(date.today()),
+        },
     )
 
 
@@ -271,10 +278,18 @@ def check_hours(request):
 
     matched_by = "passport" if code_key == passport_key else "employee_no"
 
-    # 每个「人 + 项目」最新工卡，筛出这个人的（工卡用外键指向姓名库，直接比 id）
+    # 只取**所选考勤周期**的最新工卡（周期按提交月份），历史周期的数据不混进来
+    period_key = (request.GET.get("period") or "").strip()
+    if not re.fullmatch(r"\d{4}-\d{2}", period_key):
+        period_key = _payroll_month(date.today())
+    period_start, period_end = _period_range(period_key)
+    period_label = f"{period_key} ({period_start:%Y-%m-%d} ~ {period_end:%Y-%m-%d})"
+
     pairs = [
         (project, submission_id)
-        for (person_id, project), submission_id in _latest_submission_map().items()
+        for (person_id, project, _card_period), submission_id in _latest_submission_map(
+            period_key
+        ).items()
         if person_id == person.pk
     ]
 
@@ -284,7 +299,11 @@ def check_hours(request):
                 "ok": True,
                 "found": False,
                 "field": "name",
-                "message": "No work card has been submitted under this name yet.",
+                "period": period_key,
+                "period_label": period_label,
+                "message": "No work card has been submitted under this name in "
+                + period_label
+                + ". Please pick another period.",
             }
         )
 
@@ -344,6 +363,8 @@ def check_hours(request):
             "project_count": len(projects),
             "total_hours": float(total),
             "total_hours_label": _format_hours(total),
+            "period": period_key,
+            "period_label": period_label,
             "projects": projects,
         }
     )
@@ -567,15 +588,16 @@ def work_hours(request, submission_id):
 def save_work_hours(request, submission_id):
     """保存工天数据：按「人 + 项目 + 日期」更新，已存在则覆盖，没有工作的天记为 0。
 
-    仅允许在该「人 + 项目」最新提交的工卡上保存，历史工卡只读。
+    只允许在该工卡**所属考勤周期**（按提交月份）里的最新卡上保存；更早的那几张只读。
+    每个周期各算各的最新卡，所以上个月的历史卡在自己的周期里仍然可以补录。
     """
     submission = get_object_or_404(Submission, pk=submission_id)
 
-    if submission.pk not in _latest_submission_ids():
+    if submission.pk not in _latest_submission_ids(_card_period_key(submission)):
         return JsonResponse(
             {
                 "ok": False,
-                "message": "这是历史工卡，只有最新提交的工卡才能录入工天数据",
+                "message": "这是同一周期里较早的一张工卡，只有该周期最新提交的工卡才能录入工天数据",
             },
             status=400,
         )
@@ -766,12 +788,14 @@ def set_vacation(request, name_id):
 @staff_member_required
 @require_GET
 def person_total_hours(request, submission_id):
-    """某张工卡所属工人的累计工时，口径与整理页一致（归一化姓名 + 只取最新工卡）。
+    """某张工卡所属工人**在该工卡所属周期**里的累计工时，口径与整理页当期一致。
 
     弹窗里保存工天后用它刷新页面上该工人的「总工时」，无需刷新整个页面。
     """
     submission = get_object_or_404(Submission, pk=submission_id)
-    total = _person_hours_map().get(submission.person_id, Decimal("0"))
+    total = _person_hours_map(_card_period_key(submission)).get(
+        submission.person_id, Decimal("0")
+    )
     return JsonResponse(
         {
             "ok": True,
@@ -836,9 +860,8 @@ def _collect_card_pdf_rows(period_key=None):
       - 项目名忽略大小写 / 空格 / 标点差异，避免同一个项目被算成两个
       - 休假（只有「在休假」记录）或没提交过工卡的人不列入
 
-    period_key 为 None 时不按考勤周期筛选（导出全部最新工卡）；
-    否则按「工卡录入月份 = 该月」或「卡上已登记工时落在该考勤区间」取并集
-    （实际都是 21 号之后才提交上个月的卡，只看提交时间的周期键会算到下一个月去）。
+    周期 = **工卡提交时间所在月份**（每个「人 + 项目 + 周期」各留一张最新卡），
+    period_key 为 None 时不按考勤周期筛选（导出所有周期各自的最新工卡）。
     """
     start, end = _period_range(period_key) if period_key else (None, None)
 
@@ -847,14 +870,8 @@ def _collect_card_pdf_rows(period_key=None):
         for person in Name.objects.all().only("name", "employee_no", "passport_no")
     }
 
-    # 每个「人 + 项目」最新一张工卡（工卡用外键指向姓名库，直接按人 id 分组）
-    latest_ids = {}
-    for submission in Submission.objects.order_by("created_at", "id").only(
-        "pk", "person_id", "project", "card_image", "created_at"
-    ):
-        latest_ids[(submission.person_id, _normalize_name(submission.project))] = (
-            submission.pk
-        )
+    # 每个「人 + 项目 + 考勤周期」最新一张工卡（周期按提交月份，各周期互不相干）
+    latest_ids = _latest_submission_map(period_key)
 
     submissions = {
         s.pk: s
@@ -885,14 +902,14 @@ def _collect_card_pdf_rows(period_key=None):
     def card_in_period(submission):
         if period_key is None:
             return True
-        # ① 整理页标注的录入月份
+        # ① 提交时间所在月份 = 该周期（主口径）
         if _payroll_month(submission.created_at) == period_key:
             return True
-        # ② 卡上登记工时的日期落在该考勤区间内
+        # ② 兜底：卡上登记工时的日期落在该考勤区间内（老数据提交月份算错时仍能捞回来）
         return any(start <= d <= end for d in hours_dates.get(submission.pk, ()))
 
     cards_by_person = {}
-    for (person_id, _project_key), submission_id in latest_ids.items():
+    for (person_id, _project_key, _card_period), submission_id in latest_ids.items():
         submission = submissions.get(submission_id)
         if submission is None:
             continue
@@ -1229,29 +1246,60 @@ def _period_range(month_key):
     return date(start_year, start_month, 21), end
 
 
-def _latest_submission_map():
-    """每个「人 + 项目」最新一条提交记录（工卡）：(人 id, 归一化项目) -> 工卡 id。"""
+def _card_period_key(submission):
+    """工卡所属考勤周期：**以提交时间所在月份为准**。
+
+    例：2026 年 10 月提交的卡 → 2026-10 周期（2026-09-21 ~ 2026-10-20）
+        2026 年 11 月提交的卡 → 2026-11 周期（2026-10-21 ~ 2026-11-20）
+
+    每个月统计一次，各周期互不相干：做 11 月统计时看不到 10 月的卡，
+    反过来补导 10 月报表也不受 11 月新卡影响。
+    """
+    return _payroll_month(submission.created_at)
+
+
+def _latest_submission_map(period_key=None):
+    """每个「人 + 项目 + 考勤周期」最新一条工卡：(人 id, 归一化项目, 周期) -> 工卡 id。
+
+    周期是第三层维度 —— 每个周期各留各的最新卡，新周期的新卡**不会**把上一周期的卡
+    挤成「历史卡」，所以任何时候回看历史周期的数据都在。
+    period_key 给定时只看该周期。
+    """
     latest = {}
     queryset = Submission.objects.order_by("created_at", "id").values_list(
-        "id", "person_id", "project"
+        "id", "person_id", "project", "created_at"
     )
-    for submission_id, person_id, project in queryset:
-        latest[(person_id, _normalize_name(project))] = submission_id
+    for submission_id, person_id, project, created_at in queryset:
+        card_period = _payroll_month(created_at)
+        if period_key and card_period != period_key:
+            continue
+        latest[(person_id, _normalize_name(project), card_period)] = submission_id
     return latest
 
 
-def _latest_submission_ids():
-    """只有这些工卡允许录入 / 保存工天数据，导出与合计也只取这些工卡关联的工时。"""
-    return set(_latest_submission_map().values())
+def _latest_submission_ids(period_key=None):
+    """这些工卡允许录入 / 保存工天数据，导出与合计也只取这些工卡关联的工时。
+    period_key 给定时只看该周期；不传则是所有周期各自的最新卡。"""
+    return set(_latest_submission_map(period_key).values())
 
 
-def _person_hours_map():
-    """每个工人的累计工时：人 id -> 合计（跨项目相加，只取最新工卡关联的数据）。"""
+def _person_hours_map(period_key=None):
+    """每个工人的累计工时：人 id -> 合计（跨项目相加，只取该周期最新工卡关联的数据）。"""
     return {
         item["person_id"]: item["total"] or Decimal("0")
-        for item in WorkHour.objects.filter(submission_id__in=_latest_submission_ids())
+        for item in WorkHour.objects.filter(
+            submission_id__in=_latest_submission_ids(period_key)
+        )
         .values("person_id")
         .annotate(total=Sum("hours"))
+    }
+
+
+def _card_period_keys():
+    """所有提交过工卡的考勤周期（按提交月份）。"""
+    return {
+        _payroll_month(created_at)
+        for created_at in Submission.objects.dates("created_at", "month")
     }
 
 
@@ -1294,9 +1342,10 @@ def _period_key(day):
 
 
 def _export_periods():
-    """有工时记录的考勤周期（倒序）+ 当前周期，供导出下拉选择。"""
-    keys = {_period_key(day) for day in WorkHour.objects.dates("date", "day")}
-    keys.add(_period_key(date.today()))
+    """考勤周期（倒序），供下拉选择：提交过工卡的周期 + 有工时记录的周期 + 当前周期。"""
+    keys = set(_card_period_keys())
+    keys.update(_period_key(day) for day in WorkHour.objects.dates("date", "day"))
+    keys.add(_payroll_month(date.today()))
     periods = []
     for key in sorted(keys, reverse=True):
         start, end = _period_range(key)
@@ -1309,28 +1358,43 @@ def _export_periods():
 @staff_member_required
 @ensure_csrf_cookie
 def summary_view(request):
-    """数据整理页：以姓名库为基准，按「人 + 项目」分组展示提交情况（最新提交置顶）。"""
+    """数据整理页：**只统计所选考勤周期**（默认最近提交过工卡的周期）。
+
+    工卡属于哪个周期按**提交时间所在月份**算（`?period=YYYY-MM` 切换），
+    页面上的姓名库人数 / 已提交 / 未提交 / 累计工时全部是**该周期**的口径。
+    """
+    periods = _export_periods()
+    known_keys = {item["key"] for item in periods}
+    period_key = (request.GET.get("period") or "").strip()
+    if period_key not in known_keys:
+        period_key = _default_period_key()
+    period_year, period_month = int(period_key[:4]), int(period_key[5:7])
+    period_start, period_end = _period_range(period_key)
+
     grouped = {}
-    latest_ids = _latest_submission_ids()
+    latest_ids = _latest_submission_ids(period_key)
     # 每张工卡上已录入的工时条数，供删除前提示
     hours_count_map = {
         item["submission_id"]: item["c"]
         for item in WorkHour.objects.values("submission_id").annotate(c=Count("id"))
     }
     for submission in (
-        Submission.objects.order_by("-created_at")
+        Submission.objects.filter(
+            created_at__year=period_year, created_at__month=period_month
+        )
+        .order_by("-created_at")
         .select_related("person")
         .only("pk", "person_id", "person__name", "project", "card_image", "created_at")
     ):
         submission.period_month = _payroll_month(submission.created_at)
-        # 只有最新工卡可录入工时，历史工卡只读
+        # 只有本周期的最新工卡可录入工时，更早的那几张只读
         submission.is_latest_card = submission.pk in latest_ids
         submission.hours_count = hours_count_map.get(submission.pk, 0)
         # 工卡用外键指向姓名库，直接按人 id 分组
         grouped.setdefault(submission.person_id, []).append(submission)
 
-    # 每个工人的累计工时（跨项目相加，只取最新工卡关联的数据）
-    hours_map = _person_hours_map()
+    # 每个工人的累计工时（跨项目相加，只取本周期最新工卡关联的数据）
+    hours_map = _person_hours_map(period_key)
 
     rows = []
     for person in Name.objects.all().only("name", "employee_no", "passport_no"):
@@ -1388,16 +1452,19 @@ def summary_view(request):
         "zero_hours_count": sum(1 for row in rows if row["is_zero"]),
         "total_hours": sum(row["total_hours"] for row in rows),
         "total_hours_label": _format_hours(sum(row["total_hours"] for row in rows)),
-        "periods": _export_periods(),
-        "default_period": _default_period_key(),
+        "periods": periods,
+        "default_period": period_key,
+        "period": period_key,
+        "period_label": f"{period_key}（{period_start:%Y-%m-%d} ~ {period_end:%Y-%m-%d}）",
+        "period_card_count": sum(len(items) for items in grouped.values()),
     }
     return render(request, "summary.html", context)
 
 
 def _default_period_key():
-    """默认导出周期：最近一个有工时记录的周期；没有记录时为当前周期。"""
-    keys = sorted({_period_key(day) for day in WorkHour.objects.dates("date", "day")})
-    return keys[-1] if keys else _period_key(date.today())
+    """默认周期：最近一个**提交过工卡**的周期；一张卡都没有时取当前月份。"""
+    keys = sorted(_card_period_keys())
+    return keys[-1] if keys else _payroll_month(date.today())
 
 
 def _find_export_template():
@@ -1409,13 +1476,19 @@ def _find_export_template():
     return None
 
 
-def _collect_export_rows(start, end):
-    """汇总周期内每个工人的数据：同一天的多个项目工时相加。"""
+def _collect_export_rows(start, end, period_key=None):
+    """汇总周期内每个工人的数据：同一天的多个项目工时相加。
+
+    period_key 对应的周期里每个「人 + 项目」取最新那张卡的工时；
+    其它周期的卡就算是这个人更新的卡，也不参与本次导出。
+    """
     workers = {}
-    # 只统计「人 + 项目」最新工卡上关联的工时，历史工卡的数据不导出
+    # 只统计该周期「人 + 项目」最新工卡上关联的工时
     queryset = (
         WorkHour.objects.filter(
-            date__gte=start, date__lte=end, submission_id__in=_latest_submission_ids()
+            date__gte=start,
+            date__lte=end,
+            submission_id__in=_latest_submission_ids(period_key),
         )
         .values_list("person_id", "date", "hours", "project")
     )
@@ -1478,7 +1551,7 @@ def export_work_hours_excel(request):
             f"未找到样表模板 {EXPORT_TEMPLATE_FILE}（请放在后端根目录）", status=500
         )
 
-    rows = _collect_export_rows(start, end)
+    rows = _collect_export_rows(start, end, month_key)
 
     workbook = load_workbook(template_path)
     sheet = workbook.active
