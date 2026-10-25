@@ -2,6 +2,7 @@ import re
 import uuid
 from pathlib import Path
 
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
@@ -129,6 +130,103 @@ class Submission(models.Model):
     def save(self, *args, **kwargs):
         self.project = clean_spaces(self.project)
         super().save(*args, **kwargs)
+
+
+def resubmit_card_upload_to(instance, filename):
+    """申请重新提交时附带的那张工卡图片：resubmit_requests/年/月/随机文件名.扩展名。"""
+    suffix = Path(filename).suffix.lower() or ".jpg"
+    return f"resubmit_requests/{timezone.now():%Y/%m}/{uuid.uuid4().hex}{suffix}"
+
+
+class CardResubmitRequest(models.Model):
+    """工人「申请再次提交工卡」的记录 —— 防止管理员刚登记好的工时被新卡顶掉。
+
+    锁定规则（周期按**提交时间所在月份**，与整理页口径一致）：
+      ① 某周期 + 某项目 + 某人**还没有工时记录** → 可以随便提交（重交 / 改卡都行）
+      ② 管理员一旦**保存了工天数据**（`WorkHour`）→ 这个组合**自动锁定**，
+         工人再提交会被拒绝，并在这里留一条申请（附他这次想交的工卡图）
+      ③ 管理员「同意申请」 → 放行**一次**；工人重新提交后这条申请标记「已用掉」，
+         于是又回到锁定状态（管理员重新登记完工时后同样是锁定）
+      ④ 管理员「拒绝」 → 仍是锁定；工人再提交会再记一条申请
+
+    这样管理员前面登记的工时就不会被一张悄悄重交的卡顶掉。
+    """
+
+    STATUS_PENDING = "pending"
+    STATUS_APPROVED = "approved"
+    STATUS_REJECTED = "rejected"
+    STATUS_CHOICES = (
+        (STATUS_PENDING, "待处理"),
+        (STATUS_APPROVED, "已同意"),
+        (STATUS_REJECTED, "已拒绝"),
+    )
+
+    person = models.ForeignKey(
+        Name,
+        on_delete=models.PROTECT,
+        related_name="resubmit_requests",
+        verbose_name="姓名库",
+    )
+    project = models.CharField("项目", max_length=200)
+    period_key = models.CharField(
+        "考勤周期",
+        max_length=7,
+        db_index=True,
+        help_text="YYYY-MM，按工卡提交时间所在月份（如 2026-10 = 2026-09-21 ~ 2026-10-20）",
+    )
+    status = models.CharField(
+        "处理状态",
+        max_length=16,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+        db_index=True,
+    )
+    consumed = models.BooleanField(
+        "已用掉",
+        default=False,
+        help_text="同意后工人已重新提交过一次（此时这一组合重新锁定）",
+    )
+    attempts = models.PositiveIntegerField("申请次数", default=1)
+    remark = models.TextField("工人留言", blank=True, default="")
+    attempt_image = models.ImageField(
+        "本次想提交的工卡",
+        upload_to=resubmit_card_upload_to,
+        blank=True,
+        null=True,
+        help_text="工人被锁定时提交的工卡图片，供管理员判断要不要放行",
+    )
+    admin_note = models.TextField("管理员备注", blank=True, default="")
+    handled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="处理人",
+    )
+    handled_at = models.DateTimeField("处理时间", null=True, blank=True)
+    created_at = models.DateTimeField("首次申请时间", auto_now_add=True)
+    updated_at = models.DateTimeField("最近更新时间", auto_now=True)
+
+    class Meta:
+        verbose_name = "重新提交申请"
+        verbose_name_plural = "重新提交申请"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.person.name} - {self.project} - {self.period_key} - {self.status_label}"
+
+    def save(self, *args, **kwargs):
+        self.project = clean_spaces(self.project)
+        super().save(*args, **kwargs)
+
+    @property
+    def status_label(self):
+        """给管理员看的处理状态：区分「已同意但还没提交」和「已同意且已用掉」。"""
+        if self.status == self.STATUS_APPROVED:
+            return "已同意·已提交" if self.consumed else "已同意·待提交"
+        if self.status == self.STATUS_REJECTED:
+            return "已拒绝"
+        return "待处理"
 
 
 class SystemSetting(models.Model):

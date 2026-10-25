@@ -113,6 +113,7 @@ SIMPLEUI_ICON = {
     "姓名库": "fa fa-user",
     "项目库": "fa fa-folder-open",
     "提交记录": "fa fa-list-alt",
+    "重新提交申请": "fa fa-unlock-alt",
 }
 SIMPLEUI_HOME_QUICK = True
 SIMPLEUI_HOME_ACTION = True

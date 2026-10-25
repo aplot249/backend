@@ -2,10 +2,19 @@ from import_export import resources, fields
 from import_export.admin import ImportExportMixin
 from django import forms
 from django.contrib import admin, messages
+from django.utils import timezone
 from django.utils.html import format_html
 
-from .models import Name, Project, Submission, SystemSetting, WorkHour
+from .models import (
+    CardResubmitRequest,
+    Name,
+    Project,
+    Submission,
+    SystemSetting,
+    WorkHour,
+)
 from .models import clean_spaces, normalize_name
+from .views import _submit_is_locked
 
 
 class NameResource(resources.ModelResource):
@@ -206,3 +215,119 @@ class WorkHourAdmin(ImportExportMixin, admin.ModelAdmin):
     date_hierarchy = "date"
     autocomplete_fields = ("person",)
     resource_class = WorkHourResource
+
+
+@admin.register(CardResubmitRequest)
+class CardResubmitRequestAdmin(admin.ModelAdmin):
+    """工人「申请再次提交工卡」：同意后放行**一次**，他提交完自动重新锁定。
+
+    记录是工人在表单页被锁定时自动生成的，后台只能处理（同意 / 拒绝），不能新建。
+    """
+
+    list_display = (
+        "person_name",
+        "project",
+        "period_key",
+        "status_label",
+        "lock_state",
+        "attempts",
+        "attempt_thumbnail",
+        "remark",
+        "created_at",
+        "updated_at",
+        "handled_by",
+    )
+    list_filter = ("status", "consumed", "period_key")
+    search_fields = ("person__name", "project")
+    readonly_fields = (
+        "person",
+        "project",
+        "period_key",
+        "attempts",
+        "attempt_preview",
+        "created_at",
+        "updated_at",
+        "handled_by",
+        "handled_at",
+    )
+    actions = ("approve_requests", "reject_requests")
+    ordering = ("-created_at",)
+
+    def has_add_permission(self, request):
+        """只能由工人提交时自动生成，后台不手工新增。"""
+        return False
+
+    @admin.display(description="姓名", ordering="person__name")
+    def person_name(self, obj):
+        return obj.person.name
+
+    @admin.display(description="处理状态")
+    def status_label(self, obj):
+        label = obj.status_label
+        color = {
+            "待处理": "#e67e22",
+            "已拒绝": "#e74c3c",
+            "已同意·待提交": "#2d7ff9",
+            "已同意·已提交": "#27ae60",
+        }.get(label, "#666")
+        return format_html('<b style="color:{}">{}</b>', color, label)
+
+    @admin.display(description="当前是否锁定")
+    def lock_state(self, obj):
+        """实时判定：这个组合现在还能不能再交卡。"""
+        if _submit_is_locked(obj.person, obj.project, obj.period_key):
+            return format_html('<span style="color:#e74c3c">锁定中</span>')
+        return format_html('<span style="color:#27ae60">已解锁（可再交一次）</span>')
+
+    @admin.display(description="本次想提交的工卡")
+    def attempt_thumbnail(self, obj):
+        if not obj.attempt_image:
+            return "-"
+        try:
+            return format_html(
+                '<a href="{0}" target="_blank">'
+                '<img src="{0}" style="height:56px;border-radius:6px;object-fit:cover;" /></a>',
+                obj.attempt_image.url,
+            )
+        except ValueError:
+            return "-"
+
+    @admin.display(description="工卡大图")
+    def attempt_preview(self, obj):
+        if not obj.attempt_image:
+            return "未上传"
+        try:
+            return format_html(
+                '<a href="{0}" target="_blank">'
+                '<img src="{0}" style="max-height:320px;max-width:100%;border-radius:8px;" /></a>',
+                obj.attempt_image.url,
+            )
+        except ValueError:
+            return "未上传"
+
+    @admin.action(description="同意申请（放行一次提交）")
+    def approve_requests(self, request, queryset):
+        now = timezone.now()
+        count = 0
+        for item in queryset:
+            # 再点一次「同意」也能把「已用掉」的重新打开（consumed 复位）
+            item.status = CardResubmitRequest.STATUS_APPROVED
+            item.consumed = False
+            item.handled_by = request.user
+            item.handled_at = now
+            item.save(update_fields=["status", "consumed", "handled_by", "handled_at", "updated_at"])
+            count += 1
+        self.message_user(request, f"已同意 {count} 条申请，对应工人可重新提交一次工卡。")
+
+    @admin.action(description="拒绝申请（保持锁定）")
+    def reject_requests(self, request, queryset):
+        now = timezone.now()
+        count = 0
+        for item in queryset:
+            item.status = CardResubmitRequest.STATUS_REJECTED
+            item.consumed = False
+            item.handled_by = request.user
+            item.handled_at = now
+            item.save(update_fields=["status", "consumed", "handled_by", "handled_at", "updated_at"])
+            count += 1
+        self.message_user(request, f"已拒绝 {count} 条申请，对应工人仍处于锁定状态。")

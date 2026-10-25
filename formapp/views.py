@@ -16,6 +16,7 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.core.files.storage import default_storage
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
+from django.utils import timezone
 from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
@@ -34,6 +35,7 @@ from .ai_recognize import (
     recognize_region,
 )
 from .models import (
+    CardResubmitRequest,
     Name,
     Project,
     Submission,
@@ -495,6 +497,9 @@ def submit_form(request):
     - **姓名必须与姓名库匹配**：匹配不到就拒绝（英文提示「请从列表里选你的姓名」），
       匹配到就把这条工卡**用外键挂到姓名库那个人身上**（不存姓名文本），
       所以不可能出现「姓名对不上库」的工卡，后台改名也会自动跟着变
+    - **锁定**：该「周期 + 项目 + 人」一旦被管理员登记过工天数据（`WorkHour`）就锁住，
+      再提交会被拒绝并自动记一条「申请再次提交」（后台可同意 / 拒绝）；
+      管理员同意后放行一次，提交成功后重新锁定 —— 避免管理员刚统计好的工时被新卡顶掉
     """
     if not SystemSetting.get_setting().form_enabled and not _is_backend_admin(
         request.user
@@ -535,9 +540,32 @@ def submit_form(request):
     if error:
         return JsonResponse({"ok": False, "message": error}, status=400)
 
+    # 锁定检查：周期按**提交时间所在月份**，与整理页 / 导出同一套口径
+    period_key = _payroll_month(timezone.now())
+    if _submit_is_locked(person, project, period_key):
+        _record_resubmit_request(person, project, period_key, remark, card_image)
+        message = LOCKED_MESSAGE + "（你的重新提交申请已提交给管理员，请等待处理）"
+        rejected = _find_resubmit_request(
+            person, project, period_key, [CardResubmitRequest.STATUS_REJECTED]
+        )
+        if rejected is not None:
+            message += "；管理员此前已拒绝过一次申请，请先和管理员确认"
+        return JsonResponse(
+            {
+                "ok": False,
+                "field": "project",
+                "locked": True,
+                "period": period_key,
+                "message": message,
+            },
+            status=403,
+        )
+
     Submission.objects.create(
         person=person, project=project, remark=remark, card_image=card_image
     )
+    # 这条「已同意」的申请用掉了 → 该组合重新锁上（管理员下次登记完还是锁着的）
+    _consume_resubmit_request(person, project, period_key)
     return JsonResponse({"ok": True, "message": "Submitted successfully"})
 
 
@@ -1302,6 +1330,96 @@ def _card_period_keys():
         _payroll_month(created_at)
         for created_at in Submission.objects.dates("created_at", "month")
     }
+
+
+# ---------- 工卡提交锁定：防止管理员登记好的工时被重交的卡顶掉 ----------
+# 规则见 formapp/models.CardResubmitRequest 的文档：
+#   该周期 + 项目 + 人 一旦有工时记录就锁定；管理员同意申请后放行一次，提交完重新锁定。
+
+LOCKED_MESSAGE = (
+    "本月你已经提交过工卡，目前状态是锁定，请先联系管理员解锁，才能再次提交"
+)
+
+
+def _period_hours_lock_keys(period_key):
+    """该考勤周期里**已被管理员登记过工天数据**的 (人 id, 归一化项目) 集合。
+
+    有工时记录 = 管理员已经统计过这张卡 → 默认锁定，工人不能再交一张新的把它顶掉。
+    周期按工卡提交时间所在月份算（与整理页 / 导出一致）。
+    """
+    year, month = int(period_key[:4]), int(period_key[5:7])
+    rows = WorkHour.objects.filter(
+        submission__created_at__year=year, submission__created_at__month=month
+    ).values_list("person_id", "project")
+    return {(person_id, _normalize_name(project)) for person_id, project in rows}
+
+
+def _period_unlocked_keys(period_key):
+    """该周期里「管理员已同意、且还没用掉」的 (人 id, 归一化项目) 集合 —— 这些临时解锁。"""
+    rows = CardResubmitRequest.objects.filter(
+        period_key=period_key,
+        status=CardResubmitRequest.STATUS_APPROVED,
+        consumed=False,
+    ).values_list("person_id", "project")
+    return {(person_id, _normalize_name(project)) for person_id, project in rows}
+
+
+def _submit_is_locked(person, project, period_key):
+    """该「周期 + 项目 + 人」现在能不能提交工卡：True = 锁住，不能再交。"""
+    key = (person.pk, _normalize_name(project))
+    # 还没登记过工天数据 → 随便交（允许重交 / 换卡）
+    if key not in _period_hours_lock_keys(period_key):
+        return False
+    # 登记过了 → 只有管理员同意过且这次同意还没用掉，才放行一次
+    return key not in _period_unlocked_keys(period_key)
+
+
+def _find_resubmit_request(person, project, period_key, statuses):
+    """找这个人这条「周期 + 项目」的申请（项目名按归一化比对，写法不同也算同一条）。"""
+    target = _normalize_name(project)
+    for item in CardResubmitRequest.objects.filter(
+        person=person, period_key=period_key, status__in=statuses
+    ):
+        if _normalize_name(item.project) == target:
+            return item
+    return None
+
+
+def _record_resubmit_request(person, project, period_key, remark, card_image):
+    """记一条「工人申请再次提交工卡」；同一组合已有待处理的就累加次数，不重复建行。"""
+    row = _find_resubmit_request(
+        person, project, period_key, [CardResubmitRequest.STATUS_PENDING]
+    )
+    if row is None:
+        return CardResubmitRequest.objects.create(
+            person=person,
+            project=project,
+            period_key=period_key,
+            remark=remark or "",
+            attempt_image=card_image,
+        )
+
+    row.attempts += 1
+    if remark:
+        row.remark = remark
+    if card_image:
+        # 只保留最近一次想交的那张，旧的删掉免得堆在 media 里
+        if row.attempt_image:
+            row.attempt_image.delete(save=False)
+        row.attempt_image = card_image
+    row.save()
+    return row
+
+
+def _consume_resubmit_request(person, project, period_key):
+    """工人（被放行后）真的重新提交了 → 把那条「已同意」的申请标记用掉，重新锁定。"""
+    row = _find_resubmit_request(
+        person, project, period_key, [CardResubmitRequest.STATUS_APPROVED]
+    )
+    if row is not None and not row.consumed:
+        row.consumed = True
+        row.save(update_fields=["consumed", "updated_at"])
+    return row
 
 
 def _match_person(raw_name):

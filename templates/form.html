@@ -315,6 +315,12 @@
         }
         .message.success { background: #e8f8ef; color: #27ae60; display: block; }
         .message.error { background: #fdecea; color: #e74c3c; display: block; }
+        /* 工卡已锁定：橙色，区别于普通报错 */
+        .message.error.locked {
+            background: #fff4e5;
+            color: #b26a00;
+            border-left: 4px solid #e67e22;
+        }
 
         /* ---------- 矮屏（小手机 / 横屏）再压缩 ---------- */
         @media (max-height: 620px) {
@@ -731,6 +737,8 @@
                         clearImage();
                     } else {
                         showMessage(data.message || "Submission failed", "error");
+                        // 工卡被锁定（管理员已登记工时）：单独用醒目一点的橙色提示
+                        if (data.locked) message.classList.add("locked");
                         if (data.field === "name") {
                             // 姓名不在姓名库：标红姓名框 + 提示「请从列表里选你的姓名」
                             markNameInvalid(true);

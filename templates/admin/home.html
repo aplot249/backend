@@ -1,0 +1,58 @@
+{% load resubmit_tags %}
+{% pending_resubmit_count as pending_count %}
+
+<div class="resubmit-notice {% if pending_count %}has-pending{% endif %}">
+    <span class="resubmit-dot"></span>
+    <a href="/admin/formapp/cardresubmitrequest/?status__exact=pending">
+        待处理申请 <b>{{ pending_count }}</b> 条
+    </a>
+    <span class="resubmit-tip">
+        {% if pending_count %}
+        工人被锁定后提交的「重新提交申请」，需要你同意或拒绝 —— 点上面进去处理
+        {% else %}
+        目前没有待处理的重新提交申请
+        {% endif %}
+    </span>
+</div>
+
+<style>
+    .resubmit-notice {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin: 0 0 14px;
+        padding: 10px 14px;
+        border-radius: 6px;
+        background: #f5f6f8;
+        border: 1px solid #e2e5ea;
+        font-size: 14px;
+        color: #7a7f99;
+    }
+    .resubmit-notice.has-pending {
+        background: #fff4e5;
+        border-color: #f4d3a5;
+        color: #b26a00;
+    }
+    .resubmit-notice .resubmit-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #c3c7d0;
+        flex: none;
+    }
+    .resubmit-notice.has-pending .resubmit-dot {
+        background: #e74c3c;
+        box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.18);
+    }
+    .resubmit-notice a {
+        font-weight: 600;
+        color: inherit;
+        text-decoration: none;
+    }
+    .resubmit-notice.has-pending a { color: #c0392b; }
+    .resubmit-notice a:hover { text-decoration: underline; }
+    .resubmit-tip { font-size: 13px; opacity: 0.85; }
+</style>
+
+{% include "admin/simpleui_home.html" %}
