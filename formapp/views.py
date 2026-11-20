@@ -544,7 +544,7 @@ def submit_form(request):
     period_key = _payroll_month(timezone.now())
     if _submit_is_locked(person, project, period_key):
         _record_resubmit_request(person, project, period_key, remark, card_image)
-        message = LOCKED_MESSAGE
+        message = LOCKED_MESSAGE + "（你的重新提交申请已提交给管理员，请等待处理）"
         rejected = _find_resubmit_request(
             person, project, period_key, [CardResubmitRequest.STATUS_REJECTED]
         )
