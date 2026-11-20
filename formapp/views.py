@@ -544,7 +544,7 @@ def submit_form(request):
     period_key = _payroll_month(timezone.now())
     if _submit_is_locked(person, project, period_key):
         _record_resubmit_request(person, project, period_key, remark, card_image)
-        message = LOCKED_MESSAGE + "（你的重新提交申请已提交给管理员，请等待处理）"
+        message = LOCKED_MESSAGE
         rejected = _find_resubmit_request(
             person, project, period_key, [CardResubmitRequest.STATUS_REJECTED]
         )
@@ -1337,7 +1337,7 @@ def _card_period_keys():
 #   该周期 + 项目 + 人 一旦有工时记录就锁定；管理员同意申请后放行一次，提交完重新锁定。
 
 LOCKED_MESSAGE = (
-    "本月你已经提交过工卡，目前状态是锁定，请先联系管理员解锁，才能再次提交"
+    "You have already submitted a work card this month, and its current status is "locked." Please contact an administrator to unlock it before you can submit again."
 )
 
 
